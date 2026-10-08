@@ -1,0 +1,104 @@
+# The setup repo
+
+rigger reads one git repo you own (usually private). Start from [`example/`](../example).
+
+```
+manifest.yaml          # required: what can be installed and linked
+hosts/<name>.yaml      # written by rigger: what each machine picked
+brew/*.Brewfile        # anything else is yours: Brewfiles, dotfiles, scripts …
+zsh/.zshrc
+scripts/install-x.sh
+```
+
+Check it any time: `rigger validate path/to/repo` (also runs on every load).
+
+## manifest.yaml
+
+```yaml
+version: 1                      # schema version, required
+groups: [base, packages, shell] # optional: display order; enforced when present
+
+profiles:                       # preselections; everything stays toggleable in the TUI
+  laptop:
+    description: my Mac
+    components: [homebrew, core-cli, zsh, git]
+    exclude_packages: [some-cask]          # Brewfile entries unpicked by default
+  work:
+    components: ["@laptop", work-tools]    # "@name" includes another profile
+    exclude: [apps]                        # drop components after expansion
+
+unmanaged: [docs, scripts]      # top-level dirs that are not configs (hosts/ is implied)
+
+components:
+  - id: zsh                     # [a-z0-9-]
+    title: zsh
+    group: shell
+    description: shown under the list
+    platforms: [darwin, linux]  # empty = all
+    requires: [core-cli, linux-core]
+    brewfile: brew/core.Brewfile
+    apt: [zsh, tmux]
+    links:
+      - {src: zsh/.zshrc, dst: ~/.zshrc}
+    seeds:
+      - {src: tool/config.toml, dst: ~/.config/tool/config.toml, secrets: [TOOL_TOKEN]}
+    layouts:
+      src: app-layouts
+      dst: "~/Library/Application Support/SomeApp"
+      files: [windows.json, "windows/*.json"]
+      process: SomeApp
+    cmds:
+      - name: plugins
+        check: test -d ~/.zsh/plugins       # exit 0 = done, run is skipped
+        run: zsh/install-plugins.sh         # from the repo root, $RIGGER_REPO set
+        sudo: false                         # needs a primed sudo ticket
+        tty: false                          # needs the terminal
+        secrets: [TOKEN]                    # exported from the secrets file
+
+manual:                         # shown after a run with ✓/✗
+  - {path: ~/.ssh/config, note: copy by hand}
+```
+
+### Actions
+
+| field | does | when the target already exists |
+|---|---|---|
+| `links` | symlink `dst` → `src` in the repo | other file/link/dir: backed up, then linked; a **file** with other content asks: adopt it into the repo, or keep the repo version |
+| `seeds` | render `src` once into `dst` for tools that rewrite their own config; only the listed `${SECRETS}` are replaced | rigger remembers the hash of its last render: template changed and file untouched → re-rendered; only the file changed → left alone; both → asks |
+| `brewfile` | `brew bundle` with per-package picks (`HOMEBREW_BUNDLE_*_SKIP`) | casks whose app or font is already on disk count as present and are skipped |
+| `apt` | one `apt-get install -y` batch (sudo, or direct as root) | installed packages are skipped |
+| `layouts` | `rigger sync` exports app window/workspace files to `src/<host>/` with the home path replaced by `{{RIGGER_HOME}}` | import is offered only when the app has no state yet; refused while `process` runs |
+| `cmds` | shell command from the repo root | skipped when `check` exits 0 |
+
+Backups go to `~/.local/state/rigger/backups/<timestamp>/`. Nothing is ever deleted; unpicking a component removes nothing.
+
+### requires
+
+Picking a component pulls in what it requires ("needed by …" in the TUI). A requirement that does not run on this platform is dropped, so `requires: [core-cli, linux-core]` works on macOS and Linux.
+
+### Validation
+
+Unique ids, known groups/platforms, every `src`, `brewfile` and repo script exists (a layouts dir may not exist yet), `requires`/profile references exist, no cycles, no `dst` inside another link's `dst` (a seed must never write into a linked repo dir), every top-level dir is used by a component or listed in `unmanaged`.
+
+## hosts/\<name\>.yaml
+
+Written by rigger after a run; commit it with `rigger sync`.
+
+```yaml
+profile: laptop
+components: [homebrew, core-cli, zsh, git]   # what you picked (prerequisites are not listed)
+exclude_packages: [fx]                       # Brewfile entries you unpicked
+ignore_packages: [steam]                     # installed here on purpose, not in any Brewfile
+```
+
+## Outside the repo
+
+| path | holds |
+|---|---|
+| `~/.config/rigger/state.yaml` | repo path, host name, seed render hashes |
+| `~/.config/rigger/secrets.env` | `KEY=value` (0600); a value may be `op://vault/item/field` (1Password CLI) |
+| `~/.local/state/rigger/backups/` | everything rigger replaced |
+
+## Sync
+
+`rigger sync`: export layouts → offer stray Homebrew packages (add to a Brewfile or ignore) → you pick changed files → credential gate (built-in patterns, plus `gitleaks` when installed) → commit `sync(<host>): …` → `git pull --rebase` (a conflict is aborted; live configs never get conflict markers) → apply what other machines added → push.

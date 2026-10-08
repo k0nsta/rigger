@@ -68,6 +68,9 @@ func (m *Manifest) Validate(repoDir string) error {
 				add("component %q: seed needs src and dst", c.ID)
 			}
 		}
+		if c.Layouts != nil && (c.Layouts.Src == "" || c.Layouts.Dst == "" || len(c.Layouts.Files) == 0) {
+			add("component %q: layouts needs src, dst and files", c.ID)
+		}
 		for _, cmd := range c.Cmds {
 			if cmd.Run == "" {
 				add("component %q: cmd needs run", c.ID)
@@ -215,7 +218,7 @@ func (m *Manifest) checkUnreferencedDirs(repoDir string) []error {
 	if err != nil {
 		return []error{fmt.Errorf("read repo dir: %w", err)}
 	}
-	used := map[string]bool{}
+	used := map[string]bool{"hosts": true} // rigger writes hosts/<name>.yaml itself
 	for _, u := range m.Unmanaged {
 		used[u] = true
 	}

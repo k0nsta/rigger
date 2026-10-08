@@ -2,28 +2,129 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/k0nsta/rigger/internal/testutil"
 )
 
-func TestRunVersion(t *testing.T) {
+// copyExample copies the example setup repo into a temp dir so tests can write hosts/.
+func copyExample(t *testing.T) string {
+	t.Helper()
+	dst := t.TempDir()
+	require.NoError(t, os.CopyFS(dst, os.DirFS("../../example")))
+	return dst
+}
+
+// newCLI returns a cli writing into buffers, with a temp HOME and XDG config.
+func newCLI(t *testing.T, tty bool) (*cli, *bytes.Buffer) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("RIGGER_REPO", "")
 	var out bytes.Buffer
-	require.NoError(t, run([]string{"version"}, &out))
+	return &cli{out: &out, err: &out, in: strings.NewReader(""), isTTY: tty, home: home}, &out
+}
+
+func TestVersionAndHelp(t *testing.T) {
+	c, out := newCLI(t, false)
+	require.NoError(t, c.run(context.Background(), []string{"version"}))
 	assert.Equal(t, "rigger dev\n", out.String())
+	require.ErrorContains(t, c.run(context.Background(), nil), "usage: rigger")
+	require.ErrorContains(t, c.run(context.Background(), []string{"nope"}), `unknown command "nope"`)
 }
 
-func TestRunValidate(t *testing.T) {
-	var out bytes.Buffer
-	require.NoError(t, run([]string{"validate", "../../example"}, &out))
+func TestValidate(t *testing.T) {
+	c, out := newCLI(t, false)
+	require.NoError(t, c.run(context.Background(), []string{"validate", "../../example"}))
 	assert.Contains(t, out.String(), "ok")
-
-	err := run([]string{"validate", t.TempDir()}, &out)
-	require.ErrorContains(t, err, "read manifest")
+	require.ErrorContains(t, c.run(context.Background(), []string{"validate", t.TempDir()}), "read manifest")
 }
 
-func TestRunUnknown(t *testing.T) {
-	require.ErrorContains(t, run([]string{"nope"}, &bytes.Buffer{}), `unknown command "nope"`)
-	require.ErrorContains(t, run(nil, &bytes.Buffer{}), "usage")
+func TestStatusAndApply(t *testing.T) {
+	ctx := context.Background()
+	repo := copyExample(t)
+	c, out := newCLI(t, false)
+	args := []string{"--repo", repo, "--host", "test-box", "--only", "git"}
+
+	err := c.run(ctx, append([]string{"status"}, args...))
+	var code exitCode
+	require.True(t, errors.As(err, &code), "status exits 1 while something is missing: %v", err)
+	assert.Contains(t, out.String(), "~/.gitconfig missing")
+
+	out.Reset()
+	require.NoError(t, c.run(ctx, append([]string{"apply", "--dry-run"}, args...)))
+	assert.Contains(t, out.String(), "dry run: 1 component(s) would change")
+	assert.NoFileExists(t, filepath.Join(c.home, ".gitconfig"))
+
+	require.ErrorContains(t, c.run(ctx, append([]string{"apply"}, args...)), "pass --yes")
+
+	out.Reset()
+	require.NoError(t, c.run(ctx, append([]string{"apply", "--yes"}, args...)))
+	assert.Equal(t, filepath.Join(repo, "git", ".gitconfig"), testutil.Readlink(t, filepath.Join(c.home, ".gitconfig")))
+	assert.Contains(t, testutil.ReadFile(t, filepath.Join(repo, "hosts", "test-box.yaml")), "- git")
+
+	// the host file now carries the selection: plain status works and is all ok
+	out.Reset()
+	require.NoError(t, c.run(ctx, []string{"status", "--repo", repo, "--host", "test-box"}))
+	assert.Regexp(t, `(?m)^git\s+ok`, out.String())
+}
+
+func TestApplyNeedsProfileOnFirstRun(t *testing.T) {
+	c, _ := newCLI(t, false)
+	err := c.run(context.Background(), []string{"status", "--repo", copyExample(t), "--host", "new"})
+	require.ErrorContains(t, err, "pass --profile (one of: laptop, server)")
+}
+
+func TestApplyConfirm(t *testing.T) {
+	repo := copyExample(t)
+	c, out := newCLI(t, true)
+	c.in = strings.NewReader("n\n")
+	err := c.run(context.Background(), []string{"apply", "--repo", repo, "--host", "h", "--only", "git"})
+	require.ErrorContains(t, err, "cancelled")
+	assert.Contains(t, out.String(), "apply 1 component(s)? [y/N]")
+	assert.NoFileExists(t, filepath.Join(c.home, ".gitconfig"))
+}
+
+func TestInitClonesAndRemembers(t *testing.T) {
+	ctx := context.Background()
+	work := copyExample(t)
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"add", "."},
+		{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = work
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+
+	c, out := newCLI(t, false)
+	dir := filepath.Join(c.home, "setups", "mine")
+	require.NoError(t, c.run(ctx, []string{"init", work, "--dir", dir}))
+	assert.FileExists(t, filepath.Join(dir, "manifest.yaml"))
+	assert.Contains(t, out.String(), "next: rigger apply --profile <laptop|server>")
+
+	// the remembered repo is found from anywhere
+	out.Reset()
+	t.Chdir(t.TempDir())
+	require.NoError(t, c.run(ctx, []string{"apply", "--dry-run", "--only", "git", "--host", "h"}))
+	assert.Contains(t, out.String(), "dry run")
+}
+
+func TestSplitPositional(t *testing.T) {
+	url, rest := splitPositional([]string{"--dir", "/x", "git@h:a/b", "--no-run"})
+	assert.Equal(t, "git@h:a/b", url)
+	assert.Equal(t, []string{"--dir", "/x", "--no-run"}, rest)
+	url, _ = splitPositional([]string{"--no-run"})
+	assert.Empty(t, url)
 }

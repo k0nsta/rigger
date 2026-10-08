@@ -78,10 +78,15 @@ type Seed struct {
 	Secrets []string `yaml:"secrets"`
 }
 
-// Layouts snapshots agterm window/workspace state per host under Src and restores it into Dst.
+// Layouts snapshots an app's window/workspace state per host under Src/<host>/ and restores
+// it into Dst. Absolute home paths inside the files are stored as a placeholder.
 type Layouts struct {
 	Src string `yaml:"src"`
 	Dst string `yaml:"dst"`
+	// Files are globs relative to Dst, e.g. [windows.json, "windows/*.json"].
+	Files []string `yaml:"files"`
+	// Process, when set, is the app process name; import is refused while it runs.
+	Process string `yaml:"process"`
 }
 
 // Cmd runs a shell command from the repo root unless Check (when set) already succeeds.
