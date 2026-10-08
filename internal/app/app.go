@@ -172,6 +172,7 @@ type Selection struct {
 var ErrNoProfile = errors.New("no selection for this host yet: pass --profile")
 
 // Select resolves the selection: --only, else --profile, else the host file, else the only profile.
+// A host file is applied on top of its profile, so components later added to the profile appear.
 func (s *Session) Select(profile string, only []string) (Selection, error) {
 	sel := Selection{Exclude: map[string]bool{}}
 	hf := s.HostFile
@@ -180,12 +181,16 @@ func (s *Session) Select(profile string, only []string) (Selection, error) {
 		sel.Picked = only
 		if hf != nil {
 			sel.Profile = hf.Profile
-			addAll(sel.Exclude, hf.ExcludePackages)
+			sel.Exclude = s.hostExcludes(hf.Profile, hf)
 		}
 		return sel, nil
 	case profile == "" && hf != nil:
-		sel.Profile, sel.Picked = hf.Profile, hf.Components
-		addAll(sel.Exclude, hf.ExcludePackages)
+		picked, err := s.hostPicked(hf)
+		if err != nil {
+			return sel, err
+		}
+		sel.Profile, sel.Picked = hf.Profile, picked
+		sel.Exclude = s.hostExcludes(hf.Profile, hf)
 		return sel, nil
 	case profile == "" && len(s.Manifest.Profiles) == 1:
 		for name := range s.Manifest.Profiles {
@@ -199,11 +204,64 @@ func (s *Session) Select(profile string, only []string) (Selection, error) {
 		return sel, err
 	}
 	sel.Profile, sel.Picked = profile, ids
-	addAll(sel.Exclude, s.Manifest.ProfileExcludePackages(profile))
 	if hf != nil && hf.Profile == profile {
-		addAll(sel.Exclude, hf.ExcludePackages)
+		sel.Exclude = s.hostExcludes(profile, hf)
+	} else {
+		addAll(sel.Exclude, s.Manifest.ProfileExcludePackages(profile))
 	}
 	return sel, nil
+}
+
+// hostPicked is the profile's components plus Add minus Remove (or the legacy full list).
+func (s *Session) hostPicked(hf *state.HostFile) ([]string, error) {
+	if len(hf.Components) > 0 {
+		return s.known(hf.Components), nil
+	}
+	var base []string
+	if hf.Profile != "" {
+		ids, err := s.Manifest.ExpandProfile(hf.Profile)
+		if err != nil {
+			return nil, fmt.Errorf("hosts/%s.yaml: %w", s.Host, err)
+		}
+		base = ids
+	}
+	removed := map[string]bool{}
+	for _, id := range hf.Remove {
+		removed[id] = true
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, id := range append(base, hf.Add...) {
+		if !removed[id] && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return s.known(out), nil
+}
+
+// known drops ids the manifest no longer has (a component was renamed or removed).
+func (s *Session) known(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if s.Manifest.Component(id) != nil {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// hostExcludes is the profile's default package excludes plus the host's, minus its includes.
+func (s *Session) hostExcludes(profile string, hf *state.HostFile) map[string]bool {
+	ex := map[string]bool{}
+	if profile != "" {
+		addAll(ex, s.Manifest.ProfileExcludePackages(profile))
+	}
+	addAll(ex, hf.ExcludePackages)
+	for _, p := range hf.IncludePackages {
+		delete(ex, p)
+	}
+	return ex
 }
 
 // Profiles lists profile names sorted.
@@ -226,18 +284,17 @@ func (s *Session) Plan(ctx context.Context, sel Selection) (manifest.Resolution,
 	return res, statuses, err
 }
 
-// Save remembers the repo, host and seed hashes locally and writes the host file.
+// Save remembers the repo, host and seed hashes locally and writes the host file as the
+// difference between the selection and its profile.
 func (s *Session) Save(sel Selection) error {
 	s.Local.Repo, s.Local.Host = s.Repo, s.Host
 	if err := s.Local.Save(s.LocalPath); err != nil {
 		return err
 	}
-	exclude := make([]string, 0, len(sel.Exclude))
-	for k := range sel.Exclude {
-		exclude = append(exclude, k)
+	hf, err := s.hostDelta(sel)
+	if err != nil {
+		return err
 	}
-	sort.Strings(exclude)
-	hf := &state.HostFile{Profile: sel.Profile, Components: sel.Picked, ExcludePackages: exclude}
 	if s.HostFile != nil {
 		hf.IgnorePackages = s.HostFile.IgnorePackages
 	}
@@ -246,6 +303,53 @@ func (s *Session) Save(sel Selection) error {
 	}
 	s.HostFile = hf
 	return nil
+}
+
+func (s *Session) hostDelta(sel Selection) (*state.HostFile, error) {
+	hf := &state.HostFile{Profile: sel.Profile}
+	var base []string
+	var baseExclude []string
+	if sel.Profile != "" {
+		ids, err := s.Manifest.ExpandProfile(sel.Profile)
+		if err != nil {
+			return nil, err
+		}
+		base, baseExclude = ids, s.Manifest.ProfileExcludePackages(sel.Profile)
+	}
+	inBase := setOf(base)
+	picked := setOf(sel.Picked)
+	for _, id := range sel.Picked {
+		if !inBase[id] {
+			hf.Add = append(hf.Add, id)
+		}
+	}
+	for _, id := range base {
+		if !picked[id] {
+			hf.Remove = append(hf.Remove, id)
+		}
+	}
+	defaults := setOf(baseExclude)
+	for pkg, on := range sel.Exclude {
+		if on && !defaults[pkg] {
+			hf.ExcludePackages = append(hf.ExcludePackages, pkg)
+		}
+	}
+	for _, pkg := range baseExclude {
+		if !sel.Exclude[pkg] {
+			hf.IncludePackages = append(hf.IncludePackages, pkg)
+		}
+	}
+	sort.Strings(hf.ExcludePackages)
+	sort.Strings(hf.IncludePackages)
+	return hf, nil
+}
+
+func setOf(items []string) map[string]bool {
+	m := make(map[string]bool, len(items))
+	for _, i := range items {
+		m[i] = true
+	}
+	return m
 }
 
 func addAll(set map[string]bool, items []string) {
@@ -290,4 +394,58 @@ func (s *Session) PlatformComponents() []*manifest.Component {
 		out = append(out, s.Manifest.Component(id))
 	}
 	return out
+}
+
+// Adopt takes a live file back into the repo: a seed's template (secrets become ${VAR} again)
+// or a link target whose real file drifted from the repo (copied in, then linked). It returns
+// a one-line description of what changed.
+func (s *Session) Adopt(ctx context.Context, path string) (string, error) {
+	abs, err := filepath.Abs(manifest.ExpandHome(path, s.Home))
+	if err != nil {
+		return "", err
+	}
+	env := s.Engine.Env
+	for _, c := range s.Manifest.Components {
+		for _, sd := range c.Seeds {
+			seed := action.NewSeed(env, sd)
+			if seed.Dst != abs {
+				continue
+			}
+			hash, unmatched, err := seed.Adopt(ctx, s.Secrets)
+			if err != nil {
+				return "", err
+			}
+			s.Local.Seeds[seed.Dst] = hash
+			if err := s.Local.Save(s.LocalPath); err != nil {
+				return "", err
+			}
+			msg := fmt.Sprintf("%s: template %s updated from %s", c.ID, sd.Src, sd.Dst)
+			if len(unmatched) > 0 {
+				msg += fmt.Sprintf(" (warning: %s not found in the file, its placeholder is gone)", strings.Join(unmatched, ", "))
+			}
+			return msg, nil
+		}
+		for _, l := range c.Links {
+			link := action.NewLink(env, l)
+			if link.Dst != abs {
+				continue
+			}
+			p, err := link.Probe()
+			if err != nil {
+				return "", err
+			}
+			switch p.Status {
+			case action.OK:
+				return fmt.Sprintf("%s: %s is already linked; edits are tracked in %s", c.ID, l.Dst, l.Src), nil
+			case action.Differs:
+				if err := link.Apply(env, action.AdoptLive); err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("%s: %s copied into %s and linked", c.ID, l.Dst, l.Src), nil
+			default:
+				return "", fmt.Errorf("%s: %s is %s (%s); only a real file can be adopted", c.ID, l.Dst, p.Status, p.Detail)
+			}
+		}
+	}
+	return "", fmt.Errorf("%s is not a seed or link of any component: add it to %s first", path, manifest.FileName)
 }

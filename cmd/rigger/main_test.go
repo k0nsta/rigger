@@ -128,3 +128,32 @@ func TestSplitPositional(t *testing.T) {
 	url, _ = splitPositional([]string{"--no-run"})
 	assert.Empty(t, url)
 }
+
+func TestAdoptSeedAndLink(t *testing.T) {
+	ctx := context.Background()
+	repo := copyExample(t)
+	c, out := newCLI(t, false)
+	secrets := filepath.Join(c.home, ".config", "rigger", "secrets.env")
+	testutil.WriteFile(t, secrets, "TOOL_TOKEN=tok-123456\n")
+	require.NoError(t, c.run(ctx, []string{"apply", "--yes", "--repo", repo, "--host", "h", "--only", "tool-config"}))
+
+	live := filepath.Join(c.home, ".config", "tool", "config.toml")
+	testutil.WriteFile(t, live, "token = \"tok-123456\"\ntheme = \"light\"\n")
+	out.Reset()
+	require.NoError(t, c.run(ctx, []string{"adopt", "~/.config/tool/config.toml", "--repo", repo, "--host", "h"}))
+	assert.Contains(t, out.String(), "template tool/config.toml updated")
+	assert.Equal(t, "token = \"${TOOL_TOKEN}\"\ntheme = \"light\"\n", testutil.ReadFile(t, filepath.Join(repo, "tool", "config.toml")))
+
+	out.Reset()
+	require.NoError(t, c.run(ctx, []string{"status", "--repo", repo, "--host", "h"}))
+	assert.Regexp(t, `(?m)^tool-config\s+ok`, out.String())
+
+	// a linked file that turned into a real copy is adopted and linked
+	testutil.WriteFile(t, filepath.Join(c.home, ".gitconfig"), "[user]\n  name = mine\n")
+	out.Reset()
+	require.NoError(t, c.run(ctx, []string{"adopt", filepath.Join(c.home, ".gitconfig"), "--repo", repo, "--host", "h"}))
+	assert.Contains(t, out.String(), "copied into git/.gitconfig and linked")
+	assert.Contains(t, testutil.ReadFile(t, filepath.Join(repo, "git", ".gitconfig")), "name = mine")
+
+	require.ErrorContains(t, c.run(ctx, []string{"adopt", "~/.unknown", "--repo", repo}), "not a seed or link of any component")
+}

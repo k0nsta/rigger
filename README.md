@@ -34,6 +34,7 @@ rigger                 # TUI for the remembered repo
 rigger status          # what is in place, exit 1 if anything is missing
 rigger apply --yes     # non-interactive, uses hosts/<name>.yaml
 rigger sync            # commit your changes, pull other machines', re-apply, push
+rigger adopt ~/.codex/config.toml   # take a live edit of a seeded file back into the repo
 rigger remote myvps    # install rigger on an ssh host, clone the repo there, run the TUI
 rigger validate .      # check a setup repo (use it in its CI)
 ```

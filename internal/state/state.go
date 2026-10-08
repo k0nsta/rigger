@@ -45,12 +45,22 @@ func LoadLocal(path string) (*Local, error) {
 // Save writes the local state atomically.
 func (l *Local) Save(path string) error { return writeYAML(path, l, 0o600) }
 
-// HostFile is hosts/<name>.yaml in the setup repo: what this machine picked.
+// HostFile is hosts/<name>.yaml in the setup repo: how this machine differs from its profile.
+// Storing only the difference lets later profile changes reach every machine on its next sync.
 type HostFile struct {
-	Profile         string   `yaml:"profile,omitempty"`
-	Components      []string `yaml:"components,omitempty"`
+	Profile string `yaml:"profile,omitempty"`
+	// Add are components picked here on top of the profile.
+	Add []string `yaml:"add,omitempty"`
+	// Remove are profile components unpicked here.
+	Remove []string `yaml:"remove,omitempty"`
+	// ExcludePackages are Brewfile entries unpicked here on top of the profile's default excludes.
 	ExcludePackages []string `yaml:"exclude_packages,omitempty"`
-	IgnorePackages  []string `yaml:"ignore_packages,omitempty"`
+	// IncludePackages are profile default excludes picked here anyway.
+	IncludePackages []string `yaml:"include_packages,omitempty"`
+	// IgnorePackages are installed here on purpose but belong to no Brewfile.
+	IgnorePackages []string `yaml:"ignore_packages,omitempty"`
+	// Components is the old full-list format; when set it wins over Profile/Add/Remove.
+	Components []string `yaml:"components,omitempty"`
 }
 
 // HostPath is the host file for name in repo.

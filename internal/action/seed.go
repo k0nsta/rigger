@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/k0nsta/rigger/internal/manifest"
@@ -133,4 +134,54 @@ func (s Seed) Apply(env *Env, p SeedProbe, mode SeedMode) (string, error) {
 func hashBytes(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+// minSecretLen guards Adopt: shorter values could match unrelated text.
+const minSecretLen = 6
+
+// Adopt copies the live file back into the template, turning this machine's secret values back
+// into ${VAR} placeholders. It returns the hash to remember as the last render and the secrets
+// whose value did not occur in the file (their placeholder is gone from the template).
+func (s Seed) Adopt(ctx context.Context, secrets *Secrets) (string, []string, error) {
+	live, err := os.ReadFile(s.Dst)
+	if err != nil {
+		return "", nil, fmt.Errorf("read %s: %w", s.Dst, err)
+	}
+	type pair struct{ key, value string }
+	var pairs []pair
+	for _, key := range s.Secrets {
+		v, err := secrets.Get(ctx, key)
+		if err != nil {
+			return "", nil, fmt.Errorf("%w (needed to put ${%s} back into the template)", err, key)
+		}
+		if len(v) < minSecretLen {
+			return "", nil, fmt.Errorf("secret %s is too short to put back safely; edit %s by hand", key, s.Src)
+		}
+		pairs = append(pairs, pair{key, v})
+	}
+	// longest first, so a value contained in another does not split it
+	sort.Slice(pairs, func(i, j int) bool { return len(pairs[i].value) > len(pairs[j].value) })
+
+	content := string(live)
+	var unmatched []string
+	for _, p := range pairs {
+		if !strings.Contains(content, p.value) {
+			unmatched = append(unmatched, p.key)
+			continue
+		}
+		content = strings.ReplaceAll(content, p.value, "${"+p.key+"}")
+	}
+	info, err := os.Stat(s.Src)
+	if err != nil {
+		return "", nil, fmt.Errorf("stat %s: %w", s.Src, err)
+	}
+	if err := state.WriteFileAtomic(s.Src, []byte(content), info.Mode().Perm()); err != nil {
+		return "", nil, err
+	}
+	rendered, err := s.Render(ctx, secrets)
+	if err != nil {
+		return "", nil, err
+	}
+	sort.Strings(unmatched)
+	return hashBytes(rendered), unmatched, nil
 }

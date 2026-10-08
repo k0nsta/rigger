@@ -119,3 +119,47 @@ func TestSeedKeepsPermsWithoutSecrets(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o640), testutil.Perm(t, seed.Dst))
 }
+
+func TestSeedAdoptPutsSecretsBack(t *testing.T) {
+	ctx := context.Background()
+	env := testEnv(t, map[string]string{"c": "key = \"${API_KEY}\"\nmodel = \"old\"\n"})
+	seed := NewSeed(env, manifest.Seed{Src: "c", Dst: "~/.c", Secrets: []string{"API_KEY"}})
+	secrets := secretsWith(t, map[string]string{"API_KEY": "abc123secret"})
+	p, err := seed.Probe(ctx, secrets, "")
+	require.NoError(t, err)
+	last, err := seed.Apply(env, p, Overwrite)
+	require.NoError(t, err)
+
+	// the tool and the user change the live file
+	testutil.WriteFile(t, seed.Dst, "key = \"abc123secret\"\nmodel = \"new\"\n[projects]\ntrusted = true\n")
+	p, err = seed.Probe(ctx, secrets, last)
+	require.NoError(t, err)
+	require.Equal(t, LocalEdit, p.Status)
+
+	hash, unmatched, err := seed.Adopt(ctx, secrets)
+	require.NoError(t, err)
+	assert.Empty(t, unmatched)
+	assert.Equal(t, "key = \"${API_KEY}\"\nmodel = \"new\"\n[projects]\ntrusted = true\n", testutil.ReadFile(t, seed.Src))
+	assert.NotContains(t, testutil.ReadFile(t, seed.Src), "abc123secret")
+
+	p, err = seed.Probe(ctx, secrets, hash)
+	require.NoError(t, err)
+	assert.Equal(t, OK, p.Status, "template and live agree after adopt")
+}
+
+func TestSeedAdoptWarnsAndRefuses(t *testing.T) {
+	ctx := context.Background()
+	env := testEnv(t, map[string]string{"c": "${A}\n"})
+	seed := NewSeed(env, manifest.Seed{Src: "c", Dst: "~/.c", Secrets: []string{"A"}})
+
+	testutil.WriteFile(t, seed.Dst, "the token line was removed\n")
+	_, unmatched, err := seed.Adopt(ctx, secretsWith(t, map[string]string{"A": "longenough"}))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"A"}, unmatched)
+
+	_, _, err = seed.Adopt(ctx, secretsWith(t, map[string]string{"A": "abc"}))
+	require.ErrorContains(t, err, "too short to put back safely")
+
+	_, _, err = seed.Adopt(ctx, secretsWith(t, nil))
+	require.ErrorContains(t, err, "needed to put ${A} back")
+}

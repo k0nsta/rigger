@@ -28,6 +28,7 @@ commands:
   status     show what is installed and linked for this host
   apply      install and link the selection (--profile, --only, --yes, --dry-run)
   sync       commit local changes, pull other machines', re-apply, push (--yes, --no-push)
+  adopt P    take a live seeded or linked file back into the repo (secrets become ${VAR})
   remote H   set up ssh host H: install rigger, clone the repo there, run the installer (--profile, --binary)
   validate   check a setup repo's manifest.yaml
   version    print the version
@@ -90,6 +91,8 @@ func (c *cli) run(ctx context.Context, args []string) error {
 		return c.sync(ctx, args[1:])
 	case "remote":
 		return c.remote(ctx, args[1:])
+	case "adopt":
+		return c.adopt(ctx, args[1:])
 	case "help", "-h", "--help":
 		_, err := fmt.Fprintln(c.out, usage)
 		return err

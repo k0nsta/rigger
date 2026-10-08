@@ -82,14 +82,21 @@ Unique ids, known groups/platforms, every `src`, `brewfile` and repo script exis
 
 ## hosts/\<name\>.yaml
 
-Written by rigger after a run; commit it with `rigger sync`.
+Written by rigger after a run; commit it with `rigger sync`. It stores only how this machine
+differs from its profile, so components and default excludes you add to the profile later reach
+every machine on its next sync.
 
 ```yaml
 profile: laptop
-components: [homebrew, core-cli, zsh, git]   # what you picked (prerequisites are not listed)
-exclude_packages: [fx]                       # Brewfile entries you unpicked
-ignore_packages: [steam]                     # installed here on purpose, not in any Brewfile
+add: [work-tools]          # picked here on top of the profile
+remove: [apps]             # profile components unpicked here
+exclude_packages: [fx]     # Brewfile entries unpicked here
+include_packages: [zoom]   # profile default excludes picked here anyway
+ignore_packages: [steam]   # installed here on purpose, not in any Brewfile
 ```
+
+Components that no longer exist in the manifest are ignored. The older `components: [...]`
+full list is still read.
 
 ## Outside the repo
 
@@ -98,6 +105,17 @@ ignore_packages: [steam]                     # installed here on purpose, not in
 | `~/.config/rigger/state.yaml` | repo path, host name, seed render hashes |
 | `~/.config/rigger/secrets.env` | `KEY=value` (0600); a value may be `op://vault/item/field` (1Password CLI) |
 | `~/.local/state/rigger/backups/` | everything rigger replaced |
+
+## Taking local edits back
+
+`rigger adopt <path>` copies a live file into the repo:
+
+- a **seed** (`~/.codex/config.toml`): the template is replaced by the live file with this
+  machine's secret values turned back into `${VAR}`; a secret whose value is not in the file is
+  reported (its placeholder is gone)
+- a **link** that became a real file: the file is copied over the repo version, then linked
+
+Then `rigger sync` shares it.
 
 ## Sync
 
