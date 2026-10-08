@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -27,6 +28,7 @@ func (c *cli) interactive(ctx context.Context, f sessionFlags) error {
 		Groups:     s.Manifest.GroupOrder(),
 		Manual:     s.Manual,
 		Running:    processRunning(ctx, s.Exec),
+		LogDir:     filepath.Join(s.Home, ".local", "state", "rigger", "logs"),
 	}
 	passwords := make(chan tui.PasswordRequest)
 	cfg.Passwords = passwords

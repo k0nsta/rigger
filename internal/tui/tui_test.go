@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -359,4 +360,46 @@ func TestSudoPasswordPromptDuringRun(t *testing.T) {
 	assert.Equal(t, scrFinish, m.screen, view(m))
 	assert.True(t, applier.ok)
 	assert.Equal(t, "hunter22", applier.password)
+}
+
+// failingApplier fails its component after printing some output.
+type failingApplier struct{}
+
+func (failingApplier) Apply(_ context.Context, statuses []engine.ComponentStatus, _ engine.Decisions, emit func(engine.Event)) []engine.Outcome {
+	id := statuses[0].ID()
+	emit(engine.Event{Component: id, Kind: engine.Started})
+	for _, l := range []string{"Installing zoom", "Error: It seems there is already an App at '/Applications/zoom.us.app'."} {
+		emit(engine.Event{Component: id, Kind: engine.Line, Text: l})
+	}
+	err := errors.New("brew bundle failed (exit 1)")
+	emit(engine.Event{Component: id, Kind: engine.Failed, Err: err})
+	return []engine.Outcome{{Component: id, Kind: engine.Failed, Err: err}}
+}
+
+func TestFailureOutputKept(t *testing.T) {
+	s := session(t)
+	_, err := s.SetHost("fail")
+	require.NoError(t, err)
+	logDir := t.TempDir()
+	cfg := Config{Host: s.Host, Platform: s.Platform, Repo: s.Repo, Components: s.PlatformComponents(),
+		Groups: s.Manifest.GroupOrder(), LogDir: logDir}
+	for _, name := range s.Profiles() {
+		cfg.Profiles = append(cfg.Profiles, Profile{Name: name})
+	}
+	m := New(context.Background(), cfg, s, failingApplier{}, s)
+	m.screen = scrProfile
+	press(t, m, "down", "enter", "c", "enter")
+	require.Equal(t, scrFinish, m.screen, view(m))
+
+	out := view(m)
+	assert.Contains(t, out, "1 failed")
+	assert.Contains(t, out, "already an App at")
+	assert.Contains(t, out, "Full log: "+logDir)
+	logs, err := filepath.Glob(filepath.Join(logDir, "*.log"))
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	content := testutil.ReadFile(t, logs[0])
+	assert.Contains(t, content, "==> zsh")
+	assert.Contains(t, content, "already an App at")
+	assert.Contains(t, content, "failed: brew bundle failed (exit 1)")
 }

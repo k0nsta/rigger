@@ -4,7 +4,11 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
@@ -36,6 +40,8 @@ type Config struct {
 	// Passwords delivers sudo password requests from the askpass server during the run.
 	Passwords <-chan PasswordRequest
 	Running   func(process string) bool
+	// LogDir receives one log file per run; empty disables it.
+	LogDir string
 }
 
 // PasswordRequest asks the user for the sudo password; the answer goes to Reply.
@@ -145,6 +151,10 @@ type Model struct {
 	saveError error
 
 	pwReq *PasswordRequest
+
+	compLog map[string][]string // last lines per component, for the finish screen
+	logFile *os.File
+	logPath string
 }
 
 // New builds the model.
@@ -164,6 +174,7 @@ func New(ctx context.Context, cfg Config, p Planner, a Applier, s Store) *Model 
 		importFrom: map[string]string{},
 		runState:   map[string]engine.EventKind{},
 		runErr:     map[string]error{},
+		compLog:    map[string][]string{},
 		width:      100,
 		height:     30,
 	}
@@ -268,3 +279,33 @@ func (m *Model) Outcomes() []engine.Outcome { return m.outcomes }
 
 // Err is the error that stopped the TUI, if any.
 func (m *Model) Err() error { return m.err }
+
+// openLog starts this run's log file (best effort: no log is not an error).
+func (m *Model) openLog() {
+	if m.cfg.LogDir == "" {
+		return
+	}
+	if err := os.MkdirAll(m.cfg.LogDir, 0o700); err != nil {
+		return
+	}
+	path := filepath.Join(m.cfg.LogDir, time.Now().Format("20060102-150405")+".log")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	m.logFile, m.logPath = f, path
+	fmt.Fprintf(f, "rigger run on %s (%s), profile %s, repo %s\n", m.cfg.Host, m.cfg.Platform, m.profileName, m.cfg.Repo)
+}
+
+func (m *Model) logLine(format string, args ...any) {
+	if m.logFile != nil {
+		fmt.Fprintf(m.logFile, format+"\n", args...)
+	}
+}
+
+func (m *Model) closeLog() {
+	if m.logFile != nil {
+		_ = m.logFile.Close()
+		m.logFile = nil
+	}
+}

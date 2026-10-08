@@ -208,6 +208,7 @@ func casksOnDisk(ctx context.Context, r Runner, casks []BrewPackage, paths AppPa
 	if res.Code != 0 {
 		return onDisk, nil // unknown casks: treat as missing, brew bundle reports the real error
 	}
+	var receipts map[string]bool // pkgutil receipts, loaded on first pkg-based cask
 	var info struct {
 		Casks []struct {
 			Token     string                       `json:"token"`
@@ -232,9 +233,65 @@ func casksOnDisk(ctx context.Context, r Runner, casks []BrewPackage, paths AppPa
 				onDisk[name] = true
 				break
 			}
+			// pkg-based casks (installer packages) leave a receipt their uninstall step names
+			ids := pkgutilIDs(art["uninstall"])
+			if len(ids) == 0 {
+				continue
+			}
+			if receipts == nil {
+				if receipts, err = loadReceipts(ctx, r); err != nil {
+					return nil, err
+				}
+			}
+			for _, id := range ids {
+				if receipts[id] {
+					onDisk[name] = true
+				}
+			}
 		}
 	}
 	return onDisk, nil
+}
+
+// pkgutilIDs reads the receipt ids from an uninstall stanza: [{"pkgutil": "id" | ["id", …]}].
+func pkgutilIDs(raw json.RawMessage) []string {
+	if raw == nil {
+		return nil
+	}
+	var stanzas []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &stanzas); err != nil {
+		return nil
+	}
+	var ids []string
+	for _, st := range stanzas {
+		v := st["pkgutil"]
+		if v == nil {
+			continue
+		}
+		var one string
+		if json.Unmarshal(v, &one) == nil && one != "" {
+			ids = append(ids, one)
+			continue
+		}
+		var many []string
+		if json.Unmarshal(v, &many) == nil {
+			ids = append(ids, many...)
+		}
+	}
+	return ids
+}
+
+// loadReceipts lists installed package receipts (macOS pkgutil); none elsewhere.
+func loadReceipts(ctx context.Context, r Runner) (map[string]bool, error) {
+	res, err := r.Run(ctx, sh.Cmd{Path: "pkgutil", Args: []string{"--pkgs"}})
+	if err != nil || res.Code != 0 {
+		return map[string]bool{}, nil //nolint:nilerr // no pkgutil: no receipts
+	}
+	out := map[string]bool{}
+	for _, l := range sh.Lines(res.Output) {
+		out[l] = true
+	}
+	return out, nil
 }
 
 // found reports whether the first file named in an artifact list exists in one of dirs.

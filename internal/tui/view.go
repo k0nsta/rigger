@@ -319,9 +319,22 @@ func (m *Model) viewFinish(b *strings.Builder) {
 	}
 	b.WriteString(headerStyle.Render("Finished: ") + summary + "\n")
 	for _, o := range m.outcomes {
-		if o.Err != nil {
-			fmt.Fprintf(b, "  %s %s: %v\n", badStyle.Render("•"), o.Component, o.Err)
+		if o.Err == nil {
+			continue
 		}
+		fmt.Fprintf(b, "  %s %s: %v\n", badStyle.Render("•"), o.Component, o.Err)
+		if o.Kind == engine.Failed {
+			lines := m.compLog[o.Component]
+			if len(lines) > 8 {
+				lines = lines[len(lines)-8:]
+			}
+			for _, l := range lines {
+				b.WriteString(dimStyle.Render("      "+truncate(l, max(20, m.width-8))) + "\n")
+			}
+		}
+	}
+	if m.logPath != "" {
+		b.WriteString(dimStyle.Render("Full log: "+m.logPath) + "\n")
 	}
 	if m.saveError != nil {
 		b.WriteString(badStyle.Render("could not save the selection: "+m.saveError.Error()) + "\n")

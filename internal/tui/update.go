@@ -406,6 +406,7 @@ func (m *Model) replanThenRun() (tea.Model, tea.Cmd) {
 
 func (m *Model) startRun() (tea.Model, tea.Cmd) {
 	m.screen = scrRunning
+	m.openLog()
 	m.events = make(chan engine.Event, 64)
 	m.done = make(chan []engine.Outcome, 1)
 	d := engine.Decisions{Adopt: m.adopt, Overwrite: m.overwrite, ImportFrom: m.importFrom, Running: m.cfg.Running}
@@ -456,15 +457,23 @@ func (m *Model) onEvent(ev engine.Event) (tea.Model, tea.Cmd) {
 	case engine.Started:
 		m.current, m.logTail = ev.Component, nil
 		m.runState[ev.Component] = engine.Started
+		m.logLine("==> %s", ev.Component)
 	case engine.Line:
 		m.logTail = append(m.logTail, ev.Text)
 		if len(m.logTail) > 200 {
 			m.logTail = m.logTail[len(m.logTail)-200:]
 		}
+		lines := append(m.compLog[ev.Component], ev.Text)
+		if len(lines) > 40 {
+			lines = lines[len(lines)-40:]
+		}
+		m.compLog[ev.Component] = lines
+		m.logLine("    %s", ev.Text)
 	case engine.Done, engine.Failed, engine.Skipped:
 		m.runState[ev.Component] = ev.Kind
 		if ev.Err != nil {
 			m.runErr[ev.Component] = ev.Err
+			m.logLine("    %s: %v", ev.Kind, ev.Err)
 		}
 	}
 	return m, m.waitEvent()
@@ -476,6 +485,7 @@ func (m *Model) onRunDone(msg runDoneMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) finish() (tea.Model, tea.Cmd) {
+	m.closeLog()
 	m.saveError = m.store.Save(m.selection())
 	m.screen = scrFinish
 	return m, nil

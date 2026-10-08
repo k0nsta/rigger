@@ -156,3 +156,29 @@ func names(pkgs []BrewPackage) []string {
 	}
 	return out
 }
+
+func TestBrewProbePkgCaskWithReceipt(t *testing.T) {
+	env := &Env{Home: t.TempDir(), Repo: testutil.Tree(t, map[string]string{"B": "cask \"zoom\"\ncask \"other-pkg\"\n"})}
+	b, err := NewBrew(env, "B")
+	require.NoError(t, err)
+	inv := &BrewInventory{Formulae: map[string]bool{}, Casks: map[string]bool{}, Taps: map[string]bool{}}
+	r := mocks.NewMockRunner(gomock.NewController(t))
+	expectRun(r, "brew info --cask --json=v2 zoom other-pkg", `{"casks":[
+	  {"token":"zoom","artifacts":[{"uninstall":[{"launchctl":["x"],"pkgutil":"us.zoom.pkg.videomeeting"}]},{"pkg":["Zoom.pkg"]}]},
+	  {"token":"other-pkg","artifacts":[{"uninstall":[{"pkgutil":["com.a","com.b"]}]},{"pkg":["O.pkg"]}]}
+	]}`, 0)
+	expectRun(r, "pkgutil --pkgs", "com.apple.pkg.Core\nus.zoom.pkg.videomeeting\n", 0).Times(1)
+
+	p, err := b.Probe(context.Background(), r, inv, nil, DefaultAppPaths(env.Home))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"zoom"}, names(p.Present), "receipt found: installed outside Homebrew")
+	assert.Equal(t, []string{"other-pkg"}, names(p.Missing))
+	assert.Contains(t, p.SkipEnv(), "HOMEBREW_BUNDLE_CASK_SKIP=zoom")
+}
+
+func TestPkgutilIDs(t *testing.T) {
+	assert.Equal(t, []string{"a"}, pkgutilIDs([]byte(`[{"pkgutil":"a"}]`)))
+	assert.Equal(t, []string{"a", "b"}, pkgutilIDs([]byte(`[{"pkgutil":["a","b"]},{"quit":"x"}]`)))
+	assert.Nil(t, pkgutilIDs(nil))
+	assert.Nil(t, pkgutilIDs([]byte(`"weird"`)))
+}
