@@ -64,7 +64,7 @@ auto_commit:              # exact paths or dir/ prefixes, relative to the repo
 ### Git and credentials
 - Every git call: `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0` for status; ssh via the user's `core.sshCommand` when set, else `ssh`, plus `-o BatchMode=yes -o ConnectTimeout=10`.
 - Detected and reported instead of prompting: `commit.gpgsign=true`, an `IdentityAgent` pointing at the 1Password agent, missing `SSH_AUTH_SOCK` under systemd.
-- Hooks: run normally; a failing hook = "waiting: hook <name> failed" (see Open questions).
+- Hooks: run normally; a failing hook = "waiting: hook <name> failed" (decided).
 - Seeds updated in background: backup by copy (live file never missing), live hash re-checked right before writing; a seed whose component declares `process` (new optional seed field) that is running is left for later.
 
 ### Scheduler units
@@ -154,10 +154,12 @@ auto_commit:              # exact paths or dir/ prefixes, relative to the repo
 - [ ] README: background sync; `docs/setup-repo.md`: `auto_commit`, seed `process`, what background sync never does
 - [ ] move this plan to `docs/plans/completed/`
 
+## Decisions
+- Hooks run in background runs; a failing hook = "waiting: hook <name> failed" (no `--no-verify`).
+- Cadence: an allowlisted file is committed after one quiet interval; at most one background push per hour.
+
 ## Open questions
-- Hooks: run repo hooks in background runs (proposed; failure = waiting) or `--no-verify` and rely on the built-in gate?
-- Cadence: quiet period of one interval and at most one background push per hour — acceptable, or push every tick?
-- macOS notification from a LaunchAgent via `osascript` may be attributed to Script Editor and stay silent without that permission (unverified); fallback is agterm when running, else `rigger status` only.
+- macOS notification from a LaunchAgent via `osascript` may be attributed to Script Editor and stay silent without that permission (unverified; user checks later). Fallback: agterm when running, else `rigger status` only.
 
 ## Post-Completion
 **Manual verification**
