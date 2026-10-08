@@ -1,0 +1,57 @@
+version: 2
+
+project_name: rigger
+
+builds:
+  - id: rigger
+    main: ./cmd/rigger
+    binary: rigger
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - arm64
+      - amd64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: rigger
+    ids:
+      - rigger
+    formats:
+      - tar.gz
+    name_template: "rigger_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  extra_files:
+    - glob: ./install.sh
+
+homebrew_casks:
+  - name: rigger
+    ids:
+      - rigger
+    repository:
+      owner: k0nsta
+      name: homebrew-apps
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/k0nsta/rigger
+    description: Set up and sync machines from your own setup repo, with a TUI
+    license: MIT
+    binaries:
+      - rigger
+    # the binaries are unsigned, so macOS quarantines what brew downloads.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr",
+              args: ["-dr", "com.apple.quarantine", "{{ `{{staged_path}}` }}/rigger"]
+        end
+      end

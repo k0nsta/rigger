@@ -1,0 +1,57 @@
+# A minimal setup repo for rigger. Copy this directory into your own (private) repo.
+version: 1
+groups: [base, packages, shell, configs]
+
+profiles:
+  laptop:
+    description: a Mac
+    components: [homebrew, core-cli, zsh, git, tool-config]
+  server:
+    description: a Debian/Ubuntu box
+    components: [linux-core, zsh, git]
+
+components:
+  - id: homebrew
+    title: Homebrew
+    group: base
+    platforms: [darwin]
+    cmds:
+      - check: command -v brew
+        run: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        sudo: true
+
+  - id: core-cli
+    title: Core CLI
+    group: packages
+    platforms: [darwin]
+    requires: [homebrew]
+    brewfile: brew/core.Brewfile
+
+  - id: linux-core
+    title: Core CLI (apt)
+    group: packages
+    platforms: [linux]
+    apt: [git, zsh, tmux, ripgrep, jq]
+
+  - id: zsh
+    title: zsh
+    group: shell
+    requires: [core-cli, linux-core]   # whichever exists on this platform
+    links:
+      - {src: zsh/.zshrc, dst: ~/.zshrc}
+
+  - id: git
+    title: git config
+    group: shell
+    links:
+      - {src: git/.gitconfig, dst: ~/.gitconfig}
+
+  - id: tool-config
+    title: a tool that rewrites its own config
+    group: configs
+    description: seeded once from a template; ${TOOL_TOKEN} comes from the local secrets file
+    seeds:
+      - {src: tool/config.toml, dst: ~/.config/tool/config.toml, secrets: [TOOL_TOKEN]}
+
+manual:
+  - {path: ~/.ssh/config, note: copy your SSH keys before rigger init}

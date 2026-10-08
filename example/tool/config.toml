@@ -1,0 +1,3 @@
+# Rendered into ~/.config/tool/config.toml on first install.
+token = "${TOOL_TOKEN}"
+theme = "dark"
