@@ -117,6 +117,12 @@ func TestValidateErrors(t *testing.T) {
 			`components: [{id: a, group: base, links: [{src: dots, dst: ~/.config/x}], seeds: [{src: dots/rc, dst: ~/.config/x/config}]}]`,
 			"is inside the link ~/.config/x",
 		},
+		{"duplicate dst", `components: [{id: a, group: base, links: [{src: dots, dst: ~/.x}, {src: dots/rc, dst: ~/.x/}]}]`, `component "a": dst ~/.x is already used by "a"`},
+		{
+			"dst shared across components",
+			`components: [{id: a, group: base, links: [{src: dots, dst: ~/.x}]}, {id: b, group: base, seeds: [{src: dots/rc, dst: ~/.x}]}]`,
+			`component "b": dst ~/.x is already used by "a"`,
+		},
 		{"unreferenced dir", `components: [{id: a, group: base, cmds: [{run: x}]}]`, "repo dir dots/ is not used"},
 	}
 	for _, tc := range tests {

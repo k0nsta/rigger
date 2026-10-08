@@ -182,8 +182,8 @@ func (m *Manifest) findCycle() string {
 	return ""
 }
 
-// checkNestedDst rejects any link/seed/layouts dst inside another link's dst: writing there
-// would write into the linked repo directory (e.g. a rendered secret into a tracked file).
+// checkNestedDst rejects a link/seed/layouts dst used twice, or inside another link's dst: writing
+// there would write into the linked repo directory (e.g. a rendered secret into a tracked file).
 func (m *Manifest) checkNestedDst() []error {
 	type dst struct{ owner, path string }
 	var links, all []dst
@@ -201,6 +201,14 @@ func (m *Manifest) checkNestedDst() []error {
 		}
 	}
 	var errs []error
+	owners := map[string]string{}
+	for _, d := range all {
+		if prev, ok := owners[d.path]; ok {
+			errs = append(errs, fmt.Errorf("component %q: dst %s is already used by %q", d.owner, d.path, prev))
+			continue
+		}
+		owners[d.path] = d.owner
+	}
 	for _, l := range links {
 		for _, d := range all {
 			if strings.HasPrefix(d.path, l.path+"/") {
