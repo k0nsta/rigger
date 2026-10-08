@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 )
 
 // Cmd is one command. Either Script (run with `sh -c`) or Path+Args.
@@ -71,6 +72,20 @@ func NewExec(home string, extra ...string) *Exec {
 	return &Exec{base: env}
 }
 
+// AddEnv appends KEY=value pairs to every child's environment (a later PATH= wins).
+func (e *Exec) AddEnv(kv ...string) { e.base = append(e.base, kv...) }
+
+// Path is the PATH children currently get.
+func (e *Exec) Path() string {
+	path := ""
+	for _, kv := range e.base {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			path = v
+		}
+	}
+	return path
+}
+
 // Env returns the base environment children get.
 func (e *Exec) Env() []string { return append([]string(nil), e.base...) }
 
@@ -90,6 +105,9 @@ func (e *Exec) Run(ctx context.Context, c Cmd) (Result, error) {
 	}
 	cmd.Dir = c.Dir
 	cmd.Env = env
+	// own session, no controlling terminal: a child that wants a password cannot grab the TTY
+	// the TUI owns; sudo uses SUDO_ASKPASS instead (see internal/askpass)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Stdin = c.Stdin
 	if cmd.Stdin == nil {
 		cmd.Stdin = bytes.NewReader(nil)

@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/k0nsta/rigger/internal/action"
 	"github.com/k0nsta/rigger/internal/manifest"
@@ -33,8 +32,6 @@ type Engine struct {
 	Platform string
 	Host     string
 	AppPaths action.AppPaths
-	// SudoRefresh is how often a primed sudo ticket is kept alive during apply (0 = 60s).
-	SudoRefresh time.Duration
 
 	inventory *action.BrewInventory
 	brewKnown bool

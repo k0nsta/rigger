@@ -217,7 +217,7 @@ func (m *Model) viewReview(b *strings.Builder) {
 		b.WriteString("\n" + todoStyle.Render("Will ask for secrets: "+strings.Join(missing, ", ")) + "\n")
 	}
 	if engine.NeedsSudo(m.plan) {
-		b.WriteString(dimStyle.Render("Some steps need sudo; you will be asked once.") + "\n")
+		b.WriteString(dimStyle.Render("Some steps need sudo; rigger asks for the password once, when the first one does.") + "\n")
 	}
 	help := "enter apply · esc back · ctrl+c quit"
 	if len(m.decisions) > 0 {
@@ -256,6 +256,11 @@ func (m *Model) viewSecret(b *strings.Builder) {
 }
 
 func (m *Model) viewRun(b *strings.Builder) {
+	if m.pwReq != nil {
+		b.WriteString(todoStyle.Render("🔒 "+m.pwReq.Message) + "\n")
+		b.WriteString(m.input.View() + "\n")
+		b.WriteString(helpStyle.Render("enter send · esc cancel this step · kept in memory for this run only") + "\n\n")
+	}
 	b.WriteString(headerStyle.Render("Applying") + "\n\n")
 	for _, cs := range m.plan {
 		id := cs.ID()

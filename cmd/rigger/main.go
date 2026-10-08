@@ -81,6 +81,8 @@ func (c *cli) run(ctx context.Context, args []string) error {
 		return err
 	case "validate":
 		return c.validate(args[1:])
+	case "askpass":
+		return c.askpass(args[1:])
 	case "init":
 		return c.init(ctx, args[1:])
 	case "status":

@@ -81,11 +81,11 @@ func (c *cli) sync(ctx context.Context, args []string) error {
 	if pending > 0 {
 		printStatuses(c.out, statuses, res)
 		if yes || c.confirmFrom(in, fmt.Sprintf("\napply %d component(s) from the repo? [y/N] ", pending)) {
-			if engine.NeedsSudo(statuses) {
-				if err := c.primeSudo(ctx, s.Exec); err != nil {
-					return err
-				}
+			stop, err := s.StartAskpass(c.terminalPassword)
+			if err != nil {
+				return err
 			}
+			defer stop()
 			outcomes := s.Engine.Apply(ctx, statuses, engine.Decisions{Running: processRunning(ctx, s.Exec)}, c.printEvent)
 			if err := s.Local.Save(s.LocalPath); err != nil {
 				return err

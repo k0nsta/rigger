@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/k0nsta/rigger/internal/action"
-	"github.com/k0nsta/rigger/internal/sh"
 )
 
 // EventKind is what happened to a component during apply.
@@ -43,11 +41,6 @@ func (e *Engine) Apply(ctx context.Context, statuses []ComponentStatus, d Decisi
 	if emit == nil {
 		emit = func(Event) {}
 	}
-	if NeedsSudo(statuses) {
-		stop := e.keepSudo(ctx)
-		defer stop()
-	}
-
 	failed := map[string]bool{}
 	outcomes := make([]Outcome, 0, len(statuses))
 	for _, cs := range statuses {
@@ -160,26 +153,4 @@ func (e *Engine) applyAction(ctx context.Context, a ActionStatus, d Decisions, o
 	default:
 		return fmt.Errorf("unknown action kind %q", a.Kind)
 	}
-}
-
-// keepSudo refreshes a primed sudo ticket until stop is called; sudo -n never prompts.
-func (e *Engine) keepSudo(ctx context.Context) (stop func()) {
-	every := e.SudoRefresh
-	if every == 0 {
-		every = 60 * time.Second
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	go func() {
-		t := time.NewTicker(every)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				_, _ = e.Runner.Run(ctx, sh.Cmd{Path: "sudo", Args: []string{"-n", "-v"}})
-			}
-		}
-	}()
-	return cancel
 }

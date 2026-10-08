@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os/exec"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -27,11 +26,15 @@ func (c *cli) interactive(ctx context.Context, f sessionFlags) error {
 		Components: s.PlatformComponents(),
 		Groups:     s.Manifest.GroupOrder(),
 		Manual:     s.Manual,
-		SudoCmd: func() *exec.Cmd {
-			return exec.Command("/bin/sh", "-c", "sudo -n true 2>/dev/null || { echo 'rigger: some steps need sudo'; sudo -v; }")
-		},
-		Running: processRunning(ctx, s.Exec),
+		Running:    processRunning(ctx, s.Exec),
 	}
+	passwords := make(chan tui.PasswordRequest)
+	cfg.Passwords = passwords
+	stopAskpass, err := s.StartAskpass(tui.AskFunc(ctx, passwords))
+	if err != nil {
+		return err
+	}
+	defer stopAskpass()
 	for _, name := range s.Profiles() {
 		cfg.Profiles = append(cfg.Profiles, tui.Profile{Name: name, Description: s.Manifest.Profiles[name].Description})
 	}

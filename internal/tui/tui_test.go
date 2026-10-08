@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/k0nsta/rigger/internal/app"
+	"github.com/k0nsta/rigger/internal/engine"
 	"github.com/k0nsta/rigger/internal/testutil"
 )
 
@@ -307,4 +308,55 @@ func TestBuildRowsGroupOrder(t *testing.T) {
 func TestTruncate(t *testing.T) {
 	assert.Equal(t, "abc", truncate("abc", 5))
 	assert.Equal(t, "ab…", truncate("abcdef", 3))
+}
+
+// askingApplier asks for the sudo password the way a brew/apt step would through askpass.
+type askingApplier struct {
+	ask      func(string) (string, bool)
+	password string
+	ok       bool
+}
+
+func (a *askingApplier) Apply(_ context.Context, statuses []engine.ComponentStatus, _ engine.Decisions, emit func(engine.Event)) []engine.Outcome {
+	emit(engine.Event{Component: statuses[0].ID(), Kind: engine.Started})
+	a.password, a.ok = a.ask("sudo password (asked once for this run)")
+	emit(engine.Event{Component: statuses[0].ID(), Kind: engine.Done})
+	return []engine.Outcome{{Component: statuses[0].ID(), Kind: engine.Done}}
+}
+
+func TestSudoPasswordPromptDuringRun(t *testing.T) {
+	s := session(t)
+	_, err := s.SetHost("pw")
+	require.NoError(t, err)
+	passwords := make(chan PasswordRequest)
+	applier := &askingApplier{ask: AskFunc(context.Background(), passwords)}
+
+	cfg := Config{Host: s.Host, Platform: s.Platform, Repo: s.Repo, Components: s.PlatformComponents(),
+		Groups: s.Manifest.GroupOrder(), Passwords: passwords}
+	for _, name := range s.Profiles() {
+		cfg.Profiles = append(cfg.Profiles, Profile{Name: name})
+	}
+	m := New(context.Background(), cfg, s, applier, s)
+	m.screen = scrProfile
+	press(t, m, "down", "enter", "c") // minimal: zsh differs
+	require.Equal(t, scrReview, m.screen)
+
+	// enter starts the run; the applier blocks on the password, so drive the loop by hand
+	_, cmd := m.Update(key("enter"))
+	msgs := run(t, cmd)
+	for len(msgs) > 0 && m.pwReq == nil {
+		next := msgs[0]
+		msgs = msgs[1:]
+		_, c := m.Update(next)
+		msgs = append(msgs, run(t, c)...)
+	}
+	require.NotNil(t, m.pwReq, "password overlay shown")
+	assert.Contains(t, view(m), "sudo password (asked once for this run)")
+	typeText(t, m, "hunter22")
+	pump(t, m, key("enter"), nil)
+	pump(t, m, nil, m.waitEvent())
+
+	assert.Equal(t, scrFinish, m.screen, view(m))
+	assert.True(t, applier.ok)
+	assert.Equal(t, "hunter22", applier.password)
 }

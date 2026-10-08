@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/k0nsta/rigger/internal/action"
+	"github.com/k0nsta/rigger/internal/askpass"
 	"github.com/k0nsta/rigger/internal/engine"
 	"github.com/k0nsta/rigger/internal/manifest"
 	"github.com/k0nsta/rigger/internal/repo"
@@ -448,4 +449,25 @@ func (s *Session) Adopt(ctx context.Context, path string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%s is not a seed or link of any component: add it to %s first", path, manifest.FileName)
+}
+
+// StartAskpass routes sudo prompts of children to ask (see internal/askpass). It is a no-op
+// as root or without /usr/bin/sudo. The returned stop forgets the password.
+func (s *Session) StartAskpass(ask askpass.Ask) (stop func(), err error) {
+	if os.Geteuid() == 0 {
+		return func() {}, nil
+	}
+	if _, err := os.Stat("/usr/bin/sudo"); err != nil {
+		return func() {}, nil //nolint:nilerr // no sudo on this machine
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("askpass: %w", err)
+	}
+	srv, err := askpass.Start(exe, ask, askpass.SudoValidate)
+	if err != nil {
+		return nil, err
+	}
+	s.Exec.AddEnv(srv.Env(s.Exec.Path())...)
+	return srv.Close, nil
 }

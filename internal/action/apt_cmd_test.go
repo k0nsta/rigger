@@ -41,7 +41,7 @@ func TestAptInstall(t *testing.T) {
 		return sh.Result{}, nil
 	})
 	require.NoError(t, AptInstall(context.Background(), r, []string{"git", "zsh"}, nil))
-	assert.Equal(t, []string{"sudo -n apt-get update -q", "sudo -n apt-get install -y -q git zsh"}, calls)
+	assert.Equal(t, []string{"sudo apt-get update -q", "sudo apt-get install -y -q git zsh"}, calls)
 	require.NoError(t, AptInstall(context.Background(), r, nil, nil))
 }
 

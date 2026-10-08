@@ -56,7 +56,7 @@ func (a Apt) Probe(ctx context.Context, r Runner) (AptProbe, error) {
 // AsRoot reports whether rigger runs as root (containers): apt then runs without sudo.
 var AsRoot = func() bool { return os.Geteuid() == 0 }
 
-// AptInstall installs packages in one batch with a primed sudo ticket (sudo -n never prompts).
+// AptInstall installs packages in one batch; sudo asks through SUDO_ASKPASS (see internal/askpass).
 func AptInstall(ctx context.Context, r Runner, packages []string, onLine func(string)) error {
 	if len(packages) == 0 {
 		return nil
@@ -66,7 +66,7 @@ func AptInstall(ctx context.Context, r Runner, packages []string, onLine func(st
 		{"apt-get", "update", "-q"},
 		append([]string{"apt-get", "install", "-y", "-q"}, packages...),
 	} {
-		c := sh.Cmd{Path: "sudo", Args: append([]string{"-n"}, step...), Env: env, OnLine: onLine}
+		c := sh.Cmd{Path: "sudo", Args: step, Env: env, OnLine: onLine}
 		if AsRoot() {
 			c = sh.Cmd{Path: step[0], Args: step[1:], Env: env, OnLine: onLine}
 		}

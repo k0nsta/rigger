@@ -80,3 +80,15 @@ func TestRunFindsToolsOnChildPath(t *testing.T) {
 	_, err = e.Run(context.Background(), Cmd{Path: "no-such-tool-anywhere"})
 	require.ErrorIs(t, err, exec.ErrNotFound)
 }
+
+func TestRunHasNoControllingTerminal(t *testing.T) {
+	res, err := NewExec(t.TempDir()).Run(context.Background(), Cmd{Script: "tty; exit 0"})
+	require.NoError(t, err)
+	assert.Equal(t, "not a tty\n", res.Output, "children cannot grab the TUI's terminal")
+}
+
+func TestAddEnvAndPath(t *testing.T) {
+	e := NewExec(t.TempDir())
+	e.AddEnv("PATH=/shim:" + e.Path())
+	assert.True(t, strings.HasPrefix(e.Path(), "/shim:/opt/homebrew/bin"))
+}

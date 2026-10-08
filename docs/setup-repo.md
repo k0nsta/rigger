@@ -51,7 +51,7 @@ components:
       - name: plugins
         check: test -d ~/.zsh/plugins       # exit 0 = done, run is skipped
         run: zsh/install-plugins.sh         # from the repo root, $RIGGER_REPO set
-        sudo: false                         # needs a primed sudo ticket
+        sudo: false                         # calls sudo (plain `sudo`, never `sudo -n`)
         tty: false                          # needs the terminal
         secrets: [TOKEN]                    # exported from the secrets file
 
@@ -69,6 +69,11 @@ manual:                         # shown after a run with ✓/✗
 | `apt` | one `apt-get install -y` batch (sudo, or direct as root) | installed packages are skipped |
 | `layouts` | `rigger sync` exports app window/workspace files to `src/<host>/` with the home path replaced by `{{RIGGER_HOME}}` | import is offered only when the app has no state yet; refused while `process` runs |
 | `cmds` | shell command from the repo root | skipped when `check` exits 0 |
+
+Commands run without a terminal. When one calls `sudo` (Homebrew casks, apt, your own `cmds`),
+rigger asks for the password itself, once per run (a masked prompt in the TUI, or on the
+terminal for `apply`/`sync`), checks it, and answers later sudo calls from memory. Use plain
+`sudo` in `cmds`: `sudo -n` refuses to ask and fails.
 
 Backups go to `~/.local/state/rigger/backups/<timestamp>/`. Nothing is ever deleted; unpicking a component removes nothing.
 

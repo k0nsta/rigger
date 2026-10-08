@@ -4,7 +4,6 @@ package tui
 
 import (
 	"context"
-	"os/exec"
 	"sort"
 
 	"charm.land/bubbles/v2/spinner"
@@ -34,9 +33,39 @@ type Config struct {
 	Components []*manifest.Component
 	Groups     []string
 	Manual     func() []app.ManualItem
-	// SudoCmd returns `sudo -v` to run on the terminal before applying; nil skips the prompt.
-	SudoCmd func() *exec.Cmd
-	Running func(process string) bool
+	// Passwords delivers sudo password requests from the askpass server during the run.
+	Passwords <-chan PasswordRequest
+	Running   func(process string) bool
+}
+
+// PasswordRequest asks the user for the sudo password; the answer goes to Reply.
+type PasswordRequest struct {
+	Message string
+	Reply   chan<- PasswordReply
+}
+
+// PasswordReply is the user's answer; OK=false means cancelled.
+type PasswordReply struct {
+	Password string
+	OK       bool
+}
+
+// AskFunc adapts a request channel to an askpass callback; ctx cancels a pending ask.
+func AskFunc(ctx context.Context, requests chan<- PasswordRequest) func(string) (string, bool) {
+	return func(msg string) (string, bool) {
+		reply := make(chan PasswordReply, 1)
+		select {
+		case requests <- PasswordRequest{Message: msg, Reply: reply}:
+		case <-ctx.Done():
+			return "", false
+		}
+		select {
+		case r := <-reply:
+			return r.Password, r.OK
+		case <-ctx.Done():
+			return "", false
+		}
+	}
 }
 
 type screen int
@@ -114,6 +143,8 @@ type Model struct {
 	logTail   []string
 	outcomes  []engine.Outcome
 	saveError error
+
+	pwReq *PasswordRequest
 }
 
 // New builds the model.

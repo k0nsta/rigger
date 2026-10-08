@@ -6,8 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
+
+	"golang.org/x/term"
 
 	"github.com/k0nsta/rigger/internal/engine"
 	"github.com/k0nsta/rigger/internal/repo"
@@ -59,11 +60,11 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 	if !yes && !c.confirm(fmt.Sprintf("\napply %d component(s)? [y/N] ", pending)) {
 		return errors.New("cancelled")
 	}
-	if engine.NeedsSudo(statuses) {
-		if err := c.primeSudo(ctx, s.Exec); err != nil {
-			return err
-		}
+	stop, err := s.StartAskpass(c.terminalPassword)
+	if err != nil {
+		return err
 	}
+	defer stop()
 
 	outcomes := s.Engine.Apply(ctx, statuses, engine.Decisions{Running: processRunning(ctx, s.Exec)}, func(ev engine.Event) {
 		switch ev.Kind {
@@ -106,25 +107,18 @@ func (c *cli) confirm(prompt string) bool {
 	return answer == "y" || answer == "yes"
 }
 
-// primeSudo asks for the sudo password once (on the terminal) so later sudo -n calls succeed.
-func (c *cli) primeSudo(ctx context.Context, e *sh.Exec) error {
-	if res, err := e.Run(ctx, sh.Cmd{Path: "sudo", Args: []string{"-n", "true"}}); err == nil && res.Code == 0 {
-		return nil
-	}
+// terminalPassword asks for the sudo password on the terminal (askpass server callback).
+func (c *cli) terminalPassword(msg string) (string, bool) {
 	if !c.isTTY {
-		return errors.New("sudo needs a password: run rigger apply in a terminal")
+		return "", false
 	}
-	fmt.Fprintln(c.out, "\nsome steps need sudo:")
-	cmd := e.Interactive(sh.Cmd{Path: "sudo", Args: []string{"-v"}})
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return errors.New("sudo was not granted")
-		}
-		return fmt.Errorf("sudo: %w", err)
+	fmt.Fprintf(c.out, "\n%s: ", msg)
+	b, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(c.out)
+	if err != nil || len(b) == 0 {
+		return "", false
 	}
-	return nil
+	return string(b), true
 }
 
 // processRunning returns a check for a running app (layouts import guard).

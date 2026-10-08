@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"slices"
 
 	"charm.land/bubbles/v2/spinner"
@@ -27,8 +26,8 @@ type (
 		statuses []engine.ComponentStatus
 		err      error
 	}
-	sudoDoneMsg struct{ err error }
 	eventMsg    engine.Event
+	passwordMsg PasswordRequest
 	runDoneMsg  struct{ outcomes []engine.Outcome }
 )
 
@@ -51,12 +50,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.fail(msg.err)
 		}
 		m.plan = msg.statuses
-		return m.sudoThenRun()
-	case sudoDoneMsg:
-		if msg.err != nil {
-			return m.fail(fmt.Errorf("sudo was not granted: %w", msg.err))
-		}
 		return m.startRun()
+	case passwordMsg:
+		req := PasswordRequest(msg)
+		m.pwReq = &req
+		m.input.SetValue("")
+		m.input.EchoMode = textinput.EchoPassword
+		m.input.Placeholder = ""
+		return m, tea.Batch(m.input.Focus(), m.waitEvent())
 	case eventMsg:
 		return m.onEvent(engine.Event(msg))
 	case runDoneMsg:
@@ -68,7 +69,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.onKey(msg)
 	}
-	if m.screen == scrHost || m.screen == scrSecret {
+	if m.screen == scrHost || m.screen == scrSecret || m.pwReq != nil {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
@@ -85,6 +86,9 @@ func isSpace(k string) bool { return k == "space" || k == " " }
 
 func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
+	if m.pwReq != nil {
+		return m.onPasswordKey(k)
+	}
 	switch m.screen {
 	case scrHost:
 		if key == "enter" {
@@ -387,7 +391,7 @@ func (m *Model) confirm() (tea.Model, tea.Cmd) {
 		m.screen = scrSecret
 		return m, m.input.Focus()
 	}
-	return m.sudoThenRun()
+	return m.startRun()
 }
 
 // replanThenRun probes again after secrets were entered, then goes straight to the run.
@@ -398,13 +402,6 @@ func (m *Model) replanThenRun() (tea.Model, tea.Cmd) {
 		_, statuses, err := m.planner.Plan(m.ctx, sel)
 		return replannedMsg{statuses: statuses, err: err}
 	}
-}
-
-func (m *Model) sudoThenRun() (tea.Model, tea.Cmd) {
-	if engine.NeedsSudo(m.plan) && m.cfg.SudoCmd != nil {
-		return m, tea.ExecProcess(m.cfg.SudoCmd(), func(err error) tea.Msg { return sudoDoneMsg{err: err} })
-	}
-	return m.startRun()
 }
 
 func (m *Model) startRun() (tea.Model, tea.Cmd) {
@@ -422,14 +419,36 @@ func (m *Model) startRun() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) waitEvent() tea.Cmd {
-	events, done := m.events, m.done
+	events, done, passwords := m.events, m.done, m.cfg.Passwords
 	return func() tea.Msg {
-		ev, ok := <-events
-		if !ok {
-			return runDoneMsg{outcomes: <-done}
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return runDoneMsg{outcomes: <-done}
+			}
+			return eventMsg(ev)
+		case req := <-passwords:
+			return passwordMsg(req)
 		}
-		return eventMsg(ev)
 	}
+}
+
+// onPasswordKey edits the sudo password overlay; enter answers, esc cancels the sudo step.
+func (m *Model) onPasswordKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "enter":
+		m.pwReq.Reply <- PasswordReply{Password: m.input.Value(), OK: m.input.Value() != ""}
+	case "esc":
+		m.pwReq.Reply <- PasswordReply{}
+	default:
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(k)
+		return m, cmd
+	}
+	m.pwReq = nil
+	m.input.SetValue("")
+	m.input.Blur()
+	return m, nil
 }
 
 func (m *Model) onEvent(ev engine.Event) (tea.Model, tea.Cmd) {
