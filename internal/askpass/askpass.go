@@ -58,7 +58,9 @@ func Start(rigger string, ask Ask, validate Validate) (*Server, error) {
 	}
 	s := &Server{dir: dir, ln: ln, ask: ask, validate: validate}
 
-	helper := "#!/bin/sh\nexec " + shellQuote(rigger) + " askpass \"$@\"\n"
+	// the socket is baked in: brew runs its children with a filtered env that drops it
+	sock := filepath.Join(dir, "sock")
+	helper := "#!/bin/sh\n" + EnvSocket + "=" + shellQuote(sock) + " exec " + shellQuote(rigger) + " askpass \"$@\"\n"
 	// manifest cmds call plain `sudo`; route it through the helper too
 	wrapper := "#!/bin/sh\nexec /usr/bin/sudo -A \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "askpass"), []byte(helper), 0o700); err != nil {

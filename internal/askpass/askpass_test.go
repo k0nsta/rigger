@@ -72,6 +72,7 @@ func TestFilesAndEnv(t *testing.T) {
 	require.Len(t, env, 3)
 	helper := strings.TrimPrefix(env[0], "SUDO_ASKPASS=")
 	assert.Contains(t, readFile(t, helper), "exec '/usr/local/bin/rigger' askpass")
+	assert.Contains(t, readFile(t, helper), EnvSocket+"='"+socket(s)+"'")
 	assert.True(t, strings.HasPrefix(env[2], "PATH="+filepath.Join(s.dir, "bin")+":"))
 	assert.Contains(t, readFile(t, filepath.Join(s.dir, "bin", "sudo")), "/usr/bin/sudo -A")
 
@@ -93,6 +94,19 @@ func TestHelperScriptEndToEnd(t *testing.T) {
 		t.Skip("nc -U not available")
 	}
 	assert.Equal(t, "OK pw-123\n", string(out))
+}
+
+func TestHelperFindsSocketWithoutEnv(t *testing.T) {
+	// brew runs sudo, and so the helper, under env -i with an allowlist that keeps only
+	// SUDO_ASKPASS; the helper must still reach the server
+	fake := filepath.Join(t.TempDir(), "rigger")
+	require.NoError(t, os.WriteFile(fake, []byte("#!/bin/sh\nprintf '%s %s' \"$"+EnvSocket+"\" \"$*\"\n"), 0o700))
+	s, err := Start(fake, func(string) (string, bool) { return "", false }, func(string) bool { return false })
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+	out, err := exec.Command("/usr/bin/env", "-i", filepath.Join(s.dir, "askpass"), "Password:").Output()
+	require.NoError(t, err)
+	assert.Equal(t, socket(s)+" askpass Password:", string(out))
 }
 
 func readFile(t *testing.T, path string) string {
