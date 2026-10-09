@@ -342,10 +342,49 @@ func (p BrewProbe) SkipEnv() []string {
 	return env
 }
 
+// taps are the third-party taps the not-excluded entries come from: tap lines and the
+// owner/tap prefix of fully qualified names.
+func (b Brew) taps(p BrewProbe) []string {
+	excluded := map[string]bool{}
+	for _, e := range p.Excluded {
+		excluded[e.Kind+":"+e.Name] = true
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(tap string) {
+		if tap != "" && !seen[tap] && !strings.HasPrefix(tap, "homebrew/") {
+			seen[tap] = true
+			out = append(out, tap)
+		}
+	}
+	for _, pkg := range b.Packages {
+		if excluded[pkg.Kind+":"+pkg.Name] {
+			continue
+		}
+		switch {
+		case pkg.Kind == KindTap:
+			add(pkg.Name)
+		case strings.Count(pkg.Name, "/") == 2:
+			add(pkg.Name[:strings.LastIndex(pkg.Name, "/")])
+		}
+	}
+	return out
+}
+
 // Apply runs brew bundle on the unmodified Brewfile, skipping excluded and present packages.
 func (b Brew) Apply(ctx context.Context, r Runner, p BrewProbe, onLine func(string)) error {
 	if len(p.Missing) == 0 {
 		return nil
+	}
+	if taps := b.taps(p); len(taps) > 0 {
+		// Homebrew 7 refuses third-party taps until trusted; listing one in the Brewfile is
+		// the consent. Older brew has no `trust`: the call fails and bundle runs as before.
+		if onLine != nil {
+			onLine("brew trust --tap " + strings.Join(taps, " "))
+		}
+		if _, err := r.Run(ctx, sh.Cmd{Path: "brew", Args: append([]string{"trust", "--tap"}, taps...)}); err != nil {
+			return err
+		}
 	}
 	res, err := r.Run(ctx, sh.Cmd{
 		Path:   "brew",

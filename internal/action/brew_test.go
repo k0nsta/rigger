@@ -149,6 +149,35 @@ func TestBrewApply(t *testing.T) {
 	require.NoError(t, b.Apply(context.Background(), r, BrewProbe{}, nil))
 }
 
+func TestBrewApplyTrustsTaps(t *testing.T) {
+	r := mocks.NewMockRunner(gomock.NewController(t))
+	b := Brew{File: "/repo/B", Packages: []BrewPackage{
+		{Kind: KindTap, Name: "acme/apps"},
+		{Kind: KindCask, Name: "tool"},
+		{Kind: KindBrew, Name: "other/tap/cli"},
+		{Kind: KindBrew, Name: "acme/apps/dup"},
+		{Kind: KindBrew, Name: "skipped/tap/x"},
+		{Kind: KindTap, Name: "homebrew/cask-fonts"},
+	}}
+	p := BrewProbe{
+		Missing:  []BrewPackage{{Kind: KindCask, Name: "tool"}},
+		Excluded: []BrewPackage{{Kind: KindBrew, Name: "skipped/tap/x"}},
+	}
+	var lines []string
+	gomock.InOrder(
+		r.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, c sh.Cmd) (sh.Result, error) {
+			assert.Equal(t, "brew trust --tap acme/apps other/tap", c.String())
+			return sh.Result{Code: 1, Output: "Error: Unknown command: brew trust"}, nil // old brew: ignored
+		}),
+		r.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, c sh.Cmd) (sh.Result, error) {
+			assert.Equal(t, "brew bundle install --no-upgrade --file /repo/B", c.String())
+			return sh.Result{}, nil
+		}),
+	)
+	require.NoError(t, b.Apply(context.Background(), r, p, func(l string) { lines = append(lines, l) }))
+	assert.Equal(t, []string{"brew trust --tap acme/apps other/tap"}, lines)
+}
+
 func names(pkgs []BrewPackage) []string {
 	out := make([]string, 0, len(pkgs))
 	for _, p := range pkgs {
