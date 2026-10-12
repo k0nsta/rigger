@@ -8,6 +8,7 @@ import (
 
 	"github.com/k0nsta/rigger/internal/action"
 	"github.com/k0nsta/rigger/internal/engine"
+	"github.com/k0nsta/rigger/internal/sh"
 )
 
 // View renders the current screen.
@@ -336,7 +337,7 @@ func (m *Model) viewFinish(b *strings.Builder) {
 		}
 	}
 	if m.logPath != "" {
-		b.WriteString(dimStyle.Render("Full log: "+m.logPath) + "\n")
+		b.WriteString(dimStyle.Render("Full log: "+sh.Tilde(m.cfg.Home, m.logPath)) + "\n")
 	}
 	if m.saveError != nil {
 		b.WriteString(badStyle.Render("could not save the selection: "+m.saveError.Error()) + "\n")

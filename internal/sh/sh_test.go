@@ -99,3 +99,11 @@ func TestAddEnvAndPath(t *testing.T) {
 	e.AddEnv("PATH=/shim:" + e.Path())
 	assert.True(t, strings.HasPrefix(e.Path(), "/shim:/opt/homebrew/bin"))
 }
+
+func TestTilde(t *testing.T) {
+	assert.Equal(t, "~/github.com/setup", Tilde("/Users/a", "/Users/a/github.com/setup"))
+	assert.Equal(t, "~", Tilde("/Users/a/", "/Users/a"))
+	assert.Equal(t, "Cloning into '~/x'...", Tilde("/Users/a", "Cloning into '/Users/a/x'..."))
+	assert.Equal(t, "/Users/ab/x", Tilde("/Users/a", "/Users/ab/x"), "only whole path elements")
+	assert.Equal(t, "/x", Tilde("/", "/x"))
+}

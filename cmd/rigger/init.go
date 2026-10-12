@@ -51,8 +51,8 @@ func (c *cli) init(ctx context.Context, args []string) error {
 		target = d
 	}
 
-	fmt.Fprintf(c.out, "cloning %s into %s\n", url, target)
-	if err := repo.Clone(ctx, e, url, target, c.tokenPrompt, func(l string) { fmt.Fprintln(c.out, "  "+l) }); err != nil {
+	fmt.Fprintf(c.out, "cloning %s into %s\n", url, sh.Tilde(home, target))
+	if err := repo.Clone(ctx, e, url, target, c.tokenPrompt, func(l string) { fmt.Fprintln(c.out, "  "+sh.Tilde(home, l)) }); err != nil {
 		return err
 	}
 	if switched, err := repo.UseSSHOrigin(ctx, e, target); err == nil && switched {
@@ -68,7 +68,7 @@ func (c *cli) init(ctx context.Context, args []string) error {
 	if err := local.Save(localPath); err != nil {
 		return err
 	}
-	fmt.Fprintf(c.out, "setup repo: %s\n", target)
+	fmt.Fprintf(c.out, "setup repo: %s\n", sh.Tilde(home, target))
 
 	if *noRun {
 		return nil
