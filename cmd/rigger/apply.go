@@ -75,7 +75,7 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 		_ = logf.Close()
 	}()
 	printStatuses(logf, statuses, res)
-	c.out = io.MultiWriter(c.out, logf)
+	out := io.MultiWriter(c.out, logf)
 
 	stop, err := s.StartAskpass(c.terminalPassword)
 	if err != nil {
@@ -86,13 +86,13 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 	outcomes := s.Engine.Apply(ctx, statuses, engine.Decisions{Running: processRunning(ctx, s.Exec)}, func(ev engine.Event) {
 		switch ev.Kind {
 		case engine.Started:
-			fmt.Fprintf(c.out, "\n==> %s\n", ev.Component)
+			fmt.Fprintf(out, "\n==> %s\n", ev.Component)
 		case engine.Line:
-			fmt.Fprintf(c.out, "    %s\n", ev.Text)
+			fmt.Fprintf(out, "    %s\n", ev.Text)
 		case engine.Failed:
-			fmt.Fprintf(c.out, "    FAILED: %v\n", ev.Err)
+			fmt.Fprintf(out, "    FAILED: %v\n", ev.Err)
 		case engine.Skipped:
-			fmt.Fprintf(c.out, "\n--  %s skipped: %v\n", ev.Component, ev.Err)
+			fmt.Fprintf(out, "\n--  %s skipped: %v\n", ev.Component, ev.Err)
 		}
 	})
 	if err := s.Save(sel); err != nil {
@@ -111,9 +111,9 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 		return fmt.Errorf("not finished: failed [%s], skipped [%s]", strings.Join(failed, ", "), strings.Join(skipped, ", "))
 	}
 	if switched, err := repo.UseSSHOrigin(ctx, s.Exec, s.Repo); err == nil && switched {
-		fmt.Fprintln(c.out, "origin switched to SSH")
+		fmt.Fprintln(out, "origin switched to SSH")
 	}
-	fmt.Fprintf(c.out, "\ndone: %d component(s); host file hosts/%s.yaml updated\n", len(outcomes), s.Host)
+	fmt.Fprintf(out, "\ndone: %d component(s); host file hosts/%s.yaml updated\n", len(outcomes), s.Host)
 	return nil
 }
 
