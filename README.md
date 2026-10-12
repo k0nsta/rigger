@@ -21,14 +21,8 @@ groups them into components and profiles. rigger adds what those files cannot do
 - **Secrets stay out of git.** Templates take `${TOKEN}` from a local secrets file (1Password
   `op://` references work), and sync refuses to commit anything that looks like a credential.
 
-| | rigger | chezmoi | dotbot | nix-darwin |
-|---|---|---|---|---|
-| Your files | plain Brewfiles and dotfiles | its source dir (`dot_` names, templates) | plain | Nix modules |
-| Dotfiles | symlinked | copied (symlink mode optional) | symlinked | Nix (home-manager) |
-| Packages | Brewfile / apt, per-package picks | your scripts | your shell commands | declarative |
-| Per machine | profile + TUI picks in a host file | template conditions | one config per machine | Nix config per host |
-| Edits on a machine | already in the repo; `rigger sync` | `chezmoi re-add` | already in the repo | edit Nix, rebuild |
-| What you learn | one YAML file | its naming + Go templates | one YAML file | the Nix language |
+Already on dotbot or chezmoi? rigger keeps your files plain and symlinked like dotbot, and adds
+per-machine picks, package installs and two-way sync.
 
 ## Install
 
