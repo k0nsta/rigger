@@ -231,6 +231,7 @@ func TestFullFlow(t *testing.T) {
 	// apply: asked for the secret, then everything runs
 	press(t, m, "enter")
 	require.Equal(t, scrSecret, m.screen)
+	assert.Contains(t, view(m), "empty skips", "the whole placeholder is shown")
 	typeText(t, m, "s3cret")
 	press(t, m, "enter")
 	require.Equal(t, scrFinish, m.screen, view(m))

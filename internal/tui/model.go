@@ -164,6 +164,8 @@ func New(ctx context.Context, cfg Config, p Planner, a Applier, s Store) *Model 
 	ctx, cancel := context.WithCancel(ctx)
 	ti := textinput.New()
 	ti.CharLimit = 4096
+	// without a width, bubbles shows only the placeholder's first letter
+	ti.SetWidth(48)
 	m := &Model{
 		cfg: cfg, planner: p, applier: a, store: s, ctx: ctx, cancel: cancel,
 		spinner:    spinner.New(spinner.WithSpinner(spinner.Dot)),
