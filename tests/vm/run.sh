@@ -3,7 +3,7 @@
 # (vanilla macOS + Command Line Tools), runs `rigger apply --yes` twice (install, then
 # idempotency) against a setup repo and keeps the logs.
 #
-#   tests/vm/run.sh golden                       build the golden image once (~15 min)
+#   tests/vm/run.sh golden                       build the golden image once (~15 min; DISK_GB, default 100)
 #   tests/vm/run.sh --repo DIR CASE...           run cases one VM at a time
 #
 # CASE is name=profile[:comp,comp] (profile "-" = none, --only comps), or random:SEED for a
@@ -14,6 +14,7 @@ set -euo pipefail
 
 BASE_IMAGE=${BASE_IMAGE:-ghcr.io/cirruslabs/macos-tahoe-vanilla:latest}
 GOLDEN=${GOLDEN:-rigger-golden}
+DISK_GB=${DISK_GB:-100}
 RANDOM_PROFILE=${RANDOM_PROFILE:-personal}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 WORK="$ROOT/tests/vm/.work"
@@ -68,7 +69,22 @@ rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
 xcode-select -p'
 	vssh "$ip" 'sudo shutdown -h now' || true
 	halt "$GOLDEN"
+	grow
 	log "golden: ready ($GOLDEN)"
+}
+
+# grow the golden disk to DISK_GB: the vanilla image's 50 GB fills up on the personal profile.
+# Recovery sits right after the system container and SIP forbids erasing it, so drop it from
+# the GPT in the image file (as packer-plugin-tart's recovery_partition = "delete" does), then
+# grow the container from inside. Runs after the CLT install, which needs softwareupdate.
+grow() {
+	local ip
+	tart set "$GOLDEN" --disk-size "$DISK_GB"
+	python3 -I "$ROOT/tests/vm/drop-recovery.py" "${TART_HOME:-$HOME/.tart}/vms/$GOLDEN/disk.img"
+	ip=$(boot "$GOLDEN")
+	vssh "$ip" 'yes | sudo diskutil repairDisk disk0 >/dev/null; sudo diskutil apfs resizeContainer disk0s2 0 && df -h /'
+	vssh "$ip" 'sudo shutdown -h now' || true
+	halt "$GOLDEN"
 }
 
 # stage the setup repo's committed tree (plus a host file for random cases) in $1

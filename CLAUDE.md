@@ -1,6 +1,6 @@
 # rigger
 
-Go + Bubble Tea installer that applies and syncs a setup repo (the user's is `k0nsta/machine-setup`, cloned at `~/github.com/machine-setup`). The repo is **private** for now: never tag `v*` (GoReleaser would push a cask with private URLs into the public tap); ship binaries with `make build` or `GOOS=darwin GOARCH=arm64 go build -trimpath ./cmd/rigger`.
+Go + Bubble Tea installer that applies and syncs a setup repo (the user's is `k0nsta/machine-setup`, cloned at `~/Dev/github.com/machine-setup`). The repo is **private** for now: never tag `v*` (GoReleaser would push a cask with private URLs into the public tap); ship binaries with `make build` or `GOOS=darwin GOARCH=arm64 go build -trimpath ./cmd/rigger`.
 
 ## Layout
 
@@ -8,7 +8,7 @@ Go + Bubble Tea installer that applies and syncs a setup repo (the user's is `k0
 - `internal/manifest`: `manifest.yaml` schema and validation. `internal/engine`: probe → plan → apply. `internal/action`: links, seeds, Brewfiles, cmds.
 - `internal/app`: session wiring (repo, state, secrets, askpass). `internal/syncer`: commit → pull --rebase → apply → push. `internal/tui`: the picker.
 - `docs/setup-repo.md`: the setup-repo contract. `example/`: a minimal setup repo. `docs/plans/`: plans (`completed/` when done).
-- `tests/`: end-to-end runs and a Debian container test; `tests/vm/run.sh`: tart fresh-Mac matrix (never run yet).
+- `tests/`: end-to-end runs and a Debian container test (skipped unless docker is up: `colima start`); `tests/vm/run.sh`: tart fresh-Mac matrix (`golden` once, then cases; results in `tests/vm/.work/results/`). tart's Homebrew formula is broken under Homebrew 7: install it from the cirruslabs/tart GitHub release.
 
 ## Commands
 
@@ -26,7 +26,7 @@ make build    # bin/rigger
 ## Gotchas
 
 - `brew` runs its children under `env -i` with an allowlist (`HOMEBREW_*`, `SUDO_ASKPASS`, `PATH`, `HOME`, `USER`…). Anything a brew child needs from rigger must be baked into a file, not passed as env (see `internal/askpass`).
-- Homebrew 7 refuses untrusted third-party taps. `Brew.Apply` runs `brew trust --tap` before `brew bundle`; on the first fresh Mac (2026-10-09) it still failed and the tap had to be trusted by hand. Cause open: start from that Mac's `~/.local/state/rigger/logs/` (did the `brew trust --tap` line run?). Tap trust does cover its items, and survives `brew tap`. Candidate fix: Homebrew 7's bundle trusts natively with `tap "x/y", trusted: true`.
+- Homebrew 7 validates a whole tap on `brew tap`: one cask without a Linux url (and no `depends_on :macos`) fails the tap with "invalid syntax in tap!", so `brew bundle` fails on a fresh Mac and passes on a rerun. That was the agr cask in k0nsta/apps (fixed 2026-10-12). Check a tap with `brew readall --os=all --arch=all <tap>`. `Brew.Apply` also runs `brew trust --tap` before `brew bundle`.
 - Homebrew resets sudo timestamps, so sudo goes through `SUDO_ASKPASS` → `rigger askpass` → the running rigger's socket.
 - Linux CI pulls `debian:13` from Docker Hub; a registry timeout there is infra, not a code failure.
 
