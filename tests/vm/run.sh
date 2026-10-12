@@ -118,6 +118,16 @@ PY
 
 rigger_local() { "$WORK/rigger-host" "$@"; }
 
+# placeholder values for every secret the case needs, as secrets.env lines: a real machine has
+# them, and without them the secret-gated components never settle and every rerun looks changed
+dummy_secrets() {
+	local tmp keys
+	tmp=$(mktemp -d)
+	keys=$(HOME=$tmp rigger_local status "$@" 2>/dev/null | sed -n 's/^missing secrets[^:]*: //p' || true)
+	rm -rf "$tmp"
+	tr ',' '\n' <<<"$keys" | sed -n 's/^ *\([A-Z0-9_][A-Z0-9_]*\) *$/\1=rigger-vm-placeholder/p'
+}
+
 run_case() {
 	local spec=$1 name profile only args=() vm ip dir out rc1 rc2
 	if [[ $spec == random:* ]]; then
@@ -145,7 +155,8 @@ run_case() {
 	tart clone "$GOLDEN" "$vm"
 	ip=$(boot "$vm")
 	log "$name: $ip, applying"
-	vssh "$ip" 'mkdir -p ~/.local/bin ~/setup'
+	vssh "$ip" 'mkdir -p ~/.local/bin ~/setup ~/.config/rigger'
+	dummy_secrets --repo "$dir" --host "$name" ${args[@]+"${args[@]}"} | vssh "$ip" 'umask 077; cat > ~/.config/rigger/secrets.env'
 	scp -q "${SSH_OPTS[@]}" -i "$KEY" "$WORK/rigger-darwin" "admin@$ip:.local/bin/rigger"
 	tar -C "$dir" -cf - . | vssh "$ip" 'tar -x -C ~/setup'
 
