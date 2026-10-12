@@ -7,6 +7,7 @@ Go + Bubble Tea installer that applies and syncs a setup repo (the user's is `k0
 - `cmd/rigger`: subcommands (`init`, `apply`, `status`, `sync`, `adopt`, `remote`, `askpass`, TUI).
 - `internal/manifest`: `manifest.yaml` schema and validation. `internal/engine`: probe → plan → apply. `internal/action`: links, seeds, Brewfiles, cmds.
 - `internal/app`: session wiring (repo, state, secrets, askpass). `internal/syncer`: commit → pull --rebase → apply → push. `internal/tui`: the picker.
+- `docs/demo/record.sh`: re-records the README GIF from `example/` in a throwaway HOME (expect types, asciinema records, agg renders; vhs needs a browser the command sandbox will not start). Check frames with `ffmpeg -i rigger.gif -fps_mode passthrough %04d.png`.
 - `docs/setup-repo.md`: the setup-repo contract. `example/`: a minimal setup repo. `docs/plans/`: plans (`completed/` when done).
 - `tests/`: end-to-end runs and a Debian container test (skipped unless docker is up: `colima start`); `tests/vm/run.sh`: tart fresh-Mac matrix (`golden` once, then cases; results in `tests/vm/.work/results/`). tart's Homebrew formula is broken under Homebrew 7: install it from the cirruslabs/tart GitHub release.
 
