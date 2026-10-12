@@ -63,7 +63,7 @@ manual:                         # shown after a run with ✓/✗
 
 | field | does | when the target already exists |
 |---|---|---|
-| `links` | symlink `dst` → `src` in the repo | other file/link/dir: backed up, then linked; a **file** with other content asks: adopt it into the repo, or keep the repo version |
+| `links` | symlink `dst` → `src` in the repo | a link into the repo's old location (after you moved the repo): relinked, no backup; other file/link/dir: backed up, then linked; a **file** with other content asks: adopt it into the repo, or keep the repo version |
 | `seeds` | render `src` once into `dst` for tools that rewrite their own config; only the listed `${SECRETS}` are replaced | rigger remembers the hash of its last render: template changed and file untouched → re-rendered; only the file changed → left alone; both → asks |
 | `brewfile` | `brew bundle` with per-package picks (`HOMEBREW_BUNDLE_*_SKIP`) | casks whose app or font is already on disk count as present and are skipped |
 | `apt` | one `apt-get install -y` batch (sudo, or direct as root) | installed packages are skipped |

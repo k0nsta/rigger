@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/k0nsta/rigger/internal/manifest"
 )
@@ -14,11 +15,34 @@ import (
 type Link struct {
 	Src string // absolute, inside the repo
 	Dst string // absolute
+	// Rel is Src relative to the repo; PrevRepo is where the repo lived before a move.
+	Rel      string
+	PrevRepo string
 }
 
 // NewLink resolves a manifest link against env.
 func NewLink(env *Env, l manifest.Link) Link {
-	return Link{Src: env.RepoPath(l.Src), Dst: env.Expand(l.Dst)}
+	return Link{Src: env.RepoPath(l.Src), Dst: env.Expand(l.Dst), Rel: filepath.FromSlash(l.Src), PrevRepo: env.PrevRepo}
+}
+
+// movedFrom reports the old repo root when target is this link's src in a repo that has
+// moved: the same repo-relative path under the remembered old root, or under any root
+// when target no longer exists.
+func (l Link) movedFrom(target string) (string, bool) {
+	if l.Rel == "" {
+		return "", false
+	}
+	root, ok := strings.CutSuffix(filepath.Clean(target), string(filepath.Separator)+filepath.Clean(l.Rel))
+	if !ok {
+		return "", false
+	}
+	if l.PrevRepo != "" && root == filepath.Clean(l.PrevRepo) {
+		return root, true
+	}
+	if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
+		return root, true
+	}
+	return "", false
 }
 
 // LinkProbe is the probed state of a link.
@@ -47,6 +71,9 @@ func (l Link) Probe() (LinkProbe, error) {
 		}
 		if filepath.Clean(target) == filepath.Clean(l.Src) {
 			return LinkProbe{Status: OK}, nil
+		}
+		if root, ok := l.movedFrom(target); ok {
+			return LinkProbe{Status: Relink, Detail: "repo moved from " + root}, nil
 		}
 		return LinkProbe{Status: Conflict, Detail: "links to " + target}, nil
 	}
@@ -93,6 +120,10 @@ func (l Link) Apply(env *Env, mode LinkMode) error {
 		return nil
 	case Missing:
 		// nothing to back up
+	case Relink:
+		if err := os.Remove(l.Dst); err != nil {
+			return fmt.Errorf("remove stale link %s: %w", l.Dst, err)
+		}
 	default:
 		if mode == AdoptLive {
 			if probe.Status != Differs {

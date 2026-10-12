@@ -93,6 +93,7 @@ func Open(opts Options) (*Session, error) {
 		Env: &action.Env{
 			Home:       home,
 			Repo:       repoDir,
+			PrevRepo:   prevRepo(local.Repo, repoDir),
 			BackupRoot: filepath.Join(home, ".local", "state", "rigger", "backups"),
 		},
 		Runner:   s.Exec,
@@ -103,6 +104,14 @@ func Open(opts Options) (*Session, error) {
 		AppPaths: action.DefaultAppPaths(home),
 	}
 	return s, nil
+}
+
+// prevRepo is the remembered repo path when the repo in use lives elsewhere.
+func prevRepo(remembered, current string) string {
+	if remembered == "" || filepath.Clean(remembered) == filepath.Clean(current) {
+		return ""
+	}
+	return remembered
 }
 
 func pickHost(flag, remembered string) (string, bool) {

@@ -99,7 +99,7 @@ func severity(s action.Status) int {
 	switch s {
 	case action.OK, action.LocalEdit, action.Present, action.NoSnapshot:
 		return 0
-	case action.Todo, action.Missing, action.Update, action.FreshTarget:
+	case action.Todo, action.Missing, action.Update, action.FreshTarget, action.Relink:
 		return 1
 	case action.Conflict:
 		return 2

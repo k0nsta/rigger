@@ -130,6 +130,34 @@ func TestApplyAndRerunIsNoop(t *testing.T) {
 	assert.NotContains(t, out, "missing")
 }
 
+func TestRepoMoveRelinksWithoutBackups(t *testing.T) {
+	m := newMachine(t)
+	repo := filepath.Join(m.home, "setup")
+	m.rigger(true, "init", remoteFromExample(t), "--dir", repo, "--no-run")
+	m.rigger(true, "apply", "--yes", "--only", "git", "--host", "box")
+
+	moved := filepath.Join(m.home, "Dev", "setup")
+	require.NoError(t, os.MkdirAll(filepath.Dir(moved), 0o755))
+	require.NoError(t, os.Rename(repo, moved))
+
+	// the remembered path is gone: say so instead of a bare "no manifest.yaml"
+	out := m.rigger(false, "status")
+	assert.Contains(t, out, "moved it?")
+
+	out = m.rigger(false, "status", "--repo", moved)
+	assert.Contains(t, out, "relink")
+
+	m.rigger(true, "apply", "--yes", "--repo", moved)
+	assert.Equal(t, filepath.Join(moved, "git", ".gitconfig"), testutil.Readlink(t, filepath.Join(m.home, ".gitconfig")))
+	backups, err := filepath.Glob(filepath.Join(m.home, ".local", "state", "rigger", "backups", "*"))
+	require.NoError(t, err)
+	assert.Empty(t, backups, "a stale link into the old repo is replaced, not backed up")
+
+	// the new location is remembered
+	out = m.rigger(true, "apply", "--yes")
+	assert.Contains(t, out, "nothing to do")
+}
+
 func TestSyncRoundTripBetweenMachines(t *testing.T) {
 	remote := remoteFromExample(t)
 	a, b := newMachine(t), newMachine(t)

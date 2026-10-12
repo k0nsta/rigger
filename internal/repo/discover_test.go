@@ -50,5 +50,5 @@ func TestDiscoverErrors(t *testing.T) {
 	require.ErrorContains(t, err, "has no manifest.yaml")
 
 	_, err = Discover("", "", "", filepath.Join(t.TempDir(), "gone"))
-	require.ErrorContains(t, err, "has no manifest.yaml")
+	require.ErrorContains(t, err, "moved it?")
 }

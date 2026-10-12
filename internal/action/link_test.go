@@ -67,6 +67,45 @@ func TestLinkProbeRelativeSymlink(t *testing.T) {
 	assert.Equal(t, OK, p.Status)
 }
 
+func TestLinkProbeAfterRepoMove(t *testing.T) {
+	env := testEnv(t, map[string]string{"zsh/.zshrc": "repo"})
+	old := filepath.Join(t.TempDir(), "old")
+	other := testutil.Tree(t, map[string]string{"zsh/.zshrc": "another clone"})
+
+	cases := []struct {
+		name     string
+		prevRepo string
+		target   string
+		want     Status
+	}{
+		{"dangling link into a moved repo", "", filepath.Join(old, "zsh", ".zshrc"), Relink},
+		{"link into the remembered old repo", other, filepath.Join(other, "zsh", ".zshrc"), Relink},
+		{"link into another existing clone", "", filepath.Join(other, "zsh", ".zshrc"), Conflict},
+		{"dangling link to another path", "", filepath.Join(old, "zsh", ".bashrc"), Conflict},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env.PrevRepo = tc.prevRepo
+			l := NewLink(env, manifest.Link{Src: "zsh/.zshrc", Dst: "~/.zshrc"})
+			_ = os.Remove(l.Dst)
+			require.NoError(t, os.Symlink(tc.target, l.Dst))
+			p, err := l.Probe()
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, p.Status, p.Detail)
+		})
+	}
+}
+
+func TestLinkApplyRelinkSkipsBackup(t *testing.T) {
+	env := testEnv(t, map[string]string{"zsh/.zshrc": "repo"})
+	l := NewLink(env, manifest.Link{Src: "zsh/.zshrc", Dst: "~/.zshrc"})
+	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "gone", "zsh", ".zshrc"), l.Dst))
+
+	require.NoError(t, l.Apply(env, KeepRepo))
+	assert.Equal(t, l.Src, testutil.Readlink(t, l.Dst))
+	assert.NoDirExists(t, env.BackupRoot)
+}
+
 func TestLinkApplyKeepRepoBacksUp(t *testing.T) {
 	env := testEnv(t, map[string]string{"git/.gitconfig": "repo"})
 	l := NewLink(env, manifest.Link{Src: "git/.gitconfig", Dst: "~/.config/git/config"})

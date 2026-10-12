@@ -32,6 +32,9 @@ func Discover(flag, env, cwd, remembered string) (string, error) {
 		}
 	}
 	if remembered != "" {
+		if !hasManifest(remembered) {
+			return "", fmt.Errorf("the setup repo remembered at %s is gone; moved it? run rigger once from its new directory or with --repo DIR", remembered)
+		}
 		return checkRepo(remembered)
 	}
 	return "", ErrNotFound

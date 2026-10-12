@@ -19,6 +19,7 @@ const (
 	OK          Status = "ok"
 	Missing     Status = "missing"
 	Conflict    Status = "conflict"     // something else is at dst; backed up, then replaced
+	Relink      Status = "relink"       // link into the repo's old location: replaced, no backup
 	Differs     Status = "differs"      // real file with other content: adopt or keep
 	Update      Status = "update"       // seed template changed, live untouched: re-render
 	BothChanged Status = "both-changed" // seed template and live both changed: overwrite or keep
@@ -39,6 +40,8 @@ func (s Status) Settled() bool {
 type Env struct {
 	Home string
 	Repo string
+	// PrevRepo is the remembered repo path when the repo now lives elsewhere.
+	PrevRepo string
 	// BackupRoot holds this run's backups; a timestamped dir is created on first use.
 	BackupRoot string
 	Now        func() time.Time
