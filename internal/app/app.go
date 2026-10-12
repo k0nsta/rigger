@@ -176,6 +176,8 @@ type Selection struct {
 	Profile string
 	Picked  []string
 	Exclude map[string]bool
+	// OneOff is an --only run on a host that already has a selection: Save keeps the host file.
+	OneOff bool
 }
 
 // ErrNoProfile means neither a profile, --only, nor a host file says what to install.
@@ -190,6 +192,7 @@ func (s *Session) Select(profile string, only []string) (Selection, error) {
 	case len(only) > 0:
 		sel.Picked = only
 		if hf != nil {
+			sel.OneOff = true
 			sel.Profile = hf.Profile
 			sel.Exclude = s.hostExcludes(hf.Profile, hf)
 		}
@@ -295,11 +298,14 @@ func (s *Session) Plan(ctx context.Context, sel Selection) (manifest.Resolution,
 }
 
 // Save remembers the repo, host and seed hashes locally and writes the host file as the
-// difference between the selection and its profile.
+// difference between the selection and its profile (not for a one-off --only run).
 func (s *Session) Save(sel Selection) error {
 	s.Local.Repo, s.Local.Host = s.Repo, s.Host
 	if err := s.Local.Save(s.LocalPath); err != nil {
 		return err
+	}
+	if sel.OneOff {
+		return nil
 	}
 	hf, err := s.hostDelta(sel)
 	if err != nil {

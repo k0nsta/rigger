@@ -39,7 +39,7 @@ rigger remote myvps    # install rigger on an ssh host, clone the repo there, ru
 rigger validate .      # check a setup repo (use it in its CI)
 ```
 
-Flags: `--repo DIR` (or `$RIGGER_REPO`), `--host NAME`, `--profile P`, `--only a,b`, `--dry-run`.
+Flags: `--repo DIR` (or `$RIGGER_REPO`), `--host NAME`, `--profile P`, `--only a,b` (one-off: leaves the host file alone once it exists), `--dry-run`.
 
 ## The setup repo
 

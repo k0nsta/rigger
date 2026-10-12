@@ -130,6 +130,20 @@ func TestApplyAndRerunIsNoop(t *testing.T) {
 	assert.NotContains(t, out, "missing")
 }
 
+func TestApplyOnlyKeepsHostSelection(t *testing.T) {
+	m := newMachine(t)
+	repo := filepath.Join(m.home, "setup")
+	m.rigger(true, "init", remoteFromExample(t), "--dir", repo, "--no-run")
+	m.secret("TOOL_TOKEN", "e2e-token")
+	m.rigger(true, "apply", "--yes", "--only", "git,tool-config", "--host", "box")
+	host := filepath.Join(repo, "hosts", "box.yaml")
+	before := testutil.ReadFile(t, host)
+
+	// a one-off --only run must not shrink what this machine has picked
+	m.rigger(true, "apply", "--yes", "--only", "git", "--host", "box")
+	assert.Equal(t, before, testutil.ReadFile(t, host))
+}
+
 func TestRepoMoveRelinksWithoutBackups(t *testing.T) {
 	m := newMachine(t)
 	repo := filepath.Join(m.home, "setup")
