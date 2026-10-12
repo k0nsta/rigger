@@ -28,6 +28,9 @@ type Cmd struct {
 	Stdin io.Reader
 	// OnLine receives combined stdout/stderr lines as they arrive.
 	OnLine func(line string)
+	// SplitStdout also fills Result.Stdout. It gives stdout its own pipe, so Output no longer
+	// keeps stdout and stderr lines in order: use it only for output the caller parses.
+	SplitStdout bool
 }
 
 // String is a short human form for logs.
@@ -42,6 +45,8 @@ func (c Cmd) String() string {
 type Result struct {
 	// Output is combined stdout/stderr.
 	Output string
+	// Stdout is stdout alone, filled when Cmd.SplitStdout is set.
+	Stdout string
 	// Code is the exit code; non-zero is not an error for Run.
 	Code int
 }
@@ -113,13 +118,16 @@ func (e *Exec) Run(ctx context.Context, c Cmd) (Result, error) {
 		cmd.Stdin = bytes.NewReader(nil)
 	}
 
-	var buf bytes.Buffer
+	var buf, stdout bytes.Buffer
 	w := &lineWriter{buf: &buf, onLine: c.OnLine}
 	cmd.Stdout, cmd.Stderr = w, w
+	if c.SplitStdout {
+		cmd.Stdout = io.MultiWriter(w, &stdout)
+	}
 	err := cmd.Run()
 	w.flush()
 
-	res := Result{Output: buf.String()}
+	res := Result{Output: buf.String(), Stdout: stdout.String()}
 	var exitErr *exec.ExitError
 	switch {
 	case err == nil:

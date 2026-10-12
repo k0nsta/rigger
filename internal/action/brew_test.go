@@ -47,7 +47,7 @@ func TestParseBrewfile(t *testing.T) {
 
 // expectRun makes the mock answer one command (matched by its String form).
 func expectRun(r *mocks.MockRunner, cmd, output string, code int) *gomock.Call {
-	return r.EXPECT().Run(gomock.Any(), cmdString(cmd)).Return(sh.Result{Output: output, Code: code}, nil)
+	return r.EXPECT().Run(gomock.Any(), cmdString(cmd)).Return(sh.Result{Output: output, Stdout: output, Code: code}, nil)
 }
 
 type cmdMatcher string
@@ -203,6 +203,22 @@ func TestBrewProbePkgCaskWithReceipt(t *testing.T) {
 	assert.Equal(t, []string{"zoom"}, names(p.Present), "receipt found: installed outside Homebrew")
 	assert.Equal(t, []string{"other-pkg"}, names(p.Missing))
 	assert.Contains(t, p.SkipEnv(), "HOMEBREW_BUNDLE_CASK_SKIP=zoom")
+}
+
+func TestBrewProbeIgnoresNoticesOnStderr(t *testing.T) {
+	env := &Env{Home: t.TempDir(), Repo: testutil.Tree(t, map[string]string{"B": "cask \"other-pkg\"\n"})}
+	b, err := NewBrew(env, "B")
+	require.NoError(t, err)
+	inv := &BrewInventory{Formulae: map[string]bool{}, Casks: map[string]bool{}, Taps: map[string]bool{}}
+	r := mocks.NewMockRunner(gomock.NewController(t))
+	// an empty brew cache prints a notice before the JSON (on stderr)
+	stdout := `{"casks":[{"token":"other-pkg","artifacts":[{"app":["Other.app"]}]}]}`
+	r.EXPECT().Run(gomock.Any(), cmdString("brew info --cask --json=v2 other-pkg")).
+		Return(sh.Result{Output: "==> Downloading Homebrew API data\n" + stdout, Stdout: stdout}, nil)
+
+	p, err := b.Probe(context.Background(), r, inv, nil, DefaultAppPaths(env.Home))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"other-pkg"}, names(p.Missing))
 }
 
 func TestPkgutilIDs(t *testing.T) {

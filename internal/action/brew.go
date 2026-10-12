@@ -200,7 +200,7 @@ func casksOnDisk(ctx context.Context, r Runner, casks []BrewPackage, paths AppPa
 	for _, c := range casks {
 		args = append(args, c.Name)
 	}
-	res, err := r.Run(ctx, sh.Cmd{Path: "brew", Args: args})
+	res, err := r.Run(ctx, sh.Cmd{Path: "brew", Args: args, SplitStdout: true})
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +216,7 @@ func casksOnDisk(ctx context.Context, r Runner, casks []BrewPackage, paths AppPa
 			Artifacts []map[string]json.RawMessage `json:"artifacts"`
 		} `json:"casks"`
 	}
-	if err := json.Unmarshal([]byte(res.Output), &info); err != nil {
+	if err := json.Unmarshal([]byte(res.Stdout), &info); err != nil {
 		return nil, fmt.Errorf("parse brew info: %w", err)
 	}
 	byToken := map[string]string{}

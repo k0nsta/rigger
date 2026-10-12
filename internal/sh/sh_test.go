@@ -32,6 +32,13 @@ func TestRunExitCodeIsNotAnError(t *testing.T) {
 	assert.Equal(t, "nope\n", res.Output)
 }
 
+func TestRunKeepsStdoutApart(t *testing.T) {
+	res, err := NewExec(t.TempDir()).Run(context.Background(), Cmd{Script: "echo notice >&2; echo '{}'", SplitStdout: true})
+	require.NoError(t, err)
+	assert.Equal(t, "{}\n", res.Stdout)
+	assert.Contains(t, res.Output, "notice")
+}
+
 func TestRunMissingBinary(t *testing.T) {
 	_, err := NewExec(t.TempDir()).Run(context.Background(), Cmd{Path: "/nonexistent/tool"})
 	require.Error(t, err)
