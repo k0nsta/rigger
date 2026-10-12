@@ -92,6 +92,7 @@ func TestPullConflictAborts(t *testing.T) {
 
 func TestGateRefusesCredentials(t *testing.T) {
 	ctx := context.Background()
+	// fake tokens, split so secret scanners do not flag the source
 	tests := map[string]string{
 		"misc/gh/hosts.yml":        "github.com:\n    oauth_token: gho_" + "abcdefghijklmnopqrstuvwxyz0123456789\n",
 		"claude/.credentials.json": "{}\n",
