@@ -1,0 +1,89 @@
+# Types the demo into a shell, waiting for each TUI screen; run by docs/demo/record.sh.
+# Output is read all the time (drain), so asciinema gets it as it happens, not in bursts.
+log_user 1
+set seen ""
+
+proc drain {} {
+	expect -timeout 0 -re {.+} { append ::seen $expect_out(buffer) } eof { exit 0 }
+}
+proc pause {ms} {
+	set end [expr {[clock milliseconds] + $ms}]
+	while {[clock milliseconds] < $end} { drain; after 15 }
+}
+# type like a person
+proc type {text} {
+	foreach ch [split $text ""] { send -- $ch; pause 45 }
+}
+# wait until pat was printed since the last wait
+proc waitfor {pat} {
+	set end [expr {[clock milliseconds] + 120000}]
+	while {[string first $pat $::seen] < 0} {
+		if {[clock milliseconds] > $end} { puts stderr "\ndemo: timed out waiting for '$pat'"; exit 1 }
+		drain; after 15
+	}
+	set ::seen ""
+}
+proc key {seq {ms 400}} { send -- $seq; pause $ms }
+
+set down "\033\[B"
+set esc "\033"
+
+# pass output through untouched: the TUI's bare \n must not become \r\n on the way to asciinema
+stty -onlcr
+spawn -noecho bash --norc --noprofile -i
+stty rows 24 columns 112 < $spawn_out(slave,name)
+send -- "export PS1='$ ' && clear\r"
+waitfor "$ "
+pause 800
+
+type "rigger init git@github.com:you/machine-setup"
+pause 400
+key "\r"
+
+waitfor "Name this machine"
+pause 1200
+key "\025" 300
+type "laptop"
+pause 500
+key "\r"
+
+waitfor "a Mac"
+pause 1500
+key "\r"
+
+# components; down to Core CLI and open its packages
+waitfor "c continue"
+pause 2500
+key $down 700
+key "\r"
+
+# untick the font cask (the last entry)
+waitfor "Packages in"
+pause 1500
+key $down; key $down; key $down
+key " " 1500
+key $esc 1200
+key "c"
+
+waitfor "Plan:"
+pause 3500
+key "\r"
+
+waitfor "enter save"
+pause 1200
+type "demo-token"
+pause 500
+key "\r"
+
+waitfor "Finished:"
+pause 3500
+key "q"
+
+waitfor "$ "
+pause 600
+type "rigger status"
+pause 400
+key "\r"
+waitfor "tool-config"
+pause 3500
+# end on the status table; leaving expect closes the shell
