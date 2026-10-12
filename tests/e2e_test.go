@@ -111,6 +111,10 @@ func TestApplyAndRerunIsNoop(t *testing.T) {
 
 	out := m.rigger(true, "apply", "--yes", "--only", "git,tool-config", "--host", "box")
 	assert.Contains(t, out, "done: 2 component(s)")
+	logs, err := filepath.Glob(filepath.Join(m.home, ".local", "state", "rigger", "logs", "*.log"))
+	require.NoError(t, err)
+	require.Len(t, logs, 1, "apply keeps a run log")
+	assert.Contains(t, testutil.ReadFile(t, logs[0]), "==> git")
 
 	assert.Equal(t, filepath.Join(repo, "git", ".gitconfig"), testutil.Readlink(t, filepath.Join(m.home, ".gitconfig")))
 	backups, err := filepath.Glob(filepath.Join(m.home, ".local", "state", "rigger", "backups", "*", ".gitconfig"))

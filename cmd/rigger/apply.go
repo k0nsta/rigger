@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/term"
 
@@ -63,6 +66,17 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 	if !yes && !c.confirm(fmt.Sprintf("\napply %d component(s)? [y/N] ", pending)) {
 		return errors.New("cancelled")
 	}
+	logf, err := openRunLog(s.Home)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		fmt.Fprintf(c.out, "log: %s\n", logf.Name())
+		_ = logf.Close()
+	}()
+	printStatuses(logf, statuses, res)
+	c.out = io.MultiWriter(c.out, logf)
+
 	stop, err := s.StartAskpass(c.terminalPassword)
 	if err != nil {
 		return err
@@ -130,4 +144,20 @@ func processRunning(ctx context.Context, e *sh.Exec) func(string) bool {
 		res, err := e.Run(ctx, sh.Cmd{Path: "pgrep", Args: []string{"-x", name}})
 		return err == nil && res.Code == 0
 	}
+}
+
+// runLogDir holds one log file per run (TUI and apply).
+func runLogDir(home string) string { return filepath.Join(home, ".local", "state", "rigger", "logs") }
+
+// openRunLog creates this run's log file.
+func openRunLog(home string) (*os.File, error) {
+	dir := runLogDir(home)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("create log dir: %w", err)
+	}
+	f, err := os.OpenFile(filepath.Join(dir, time.Now().Format("20060102-150405")+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open run log: %w", err)
+	}
+	return f, nil
 }
