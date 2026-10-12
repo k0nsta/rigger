@@ -12,6 +12,7 @@ import (
 
 	"github.com/k0nsta/rigger/internal/engine"
 	"github.com/k0nsta/rigger/internal/manifest"
+	"github.com/k0nsta/rigger/internal/sh"
 )
 
 func stdinIsTerminal() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
@@ -31,7 +32,7 @@ func (c *cli) status(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(c.out, "%s · %s · profile %s · repo %s\n\n", s.Host, s.Platform, orNone(sel.Profile), s.Repo)
+	fmt.Fprintf(c.out, "%s · %s · profile %s · repo %s\n\n", s.Host, s.Platform, orNone(sel.Profile), sh.Tilde(s.Home, s.Repo))
 	printStatuses(c.out, statuses, res)
 	if missing := engine.MissingSecrets(statuses, s.Secrets); len(missing) > 0 {
 		fmt.Fprintf(c.out, "\nmissing secrets (add to ~/.config/rigger/secrets.env): %s\n", strings.Join(missing, ", "))

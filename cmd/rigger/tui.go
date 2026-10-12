@@ -9,6 +9,7 @@ import (
 	"github.com/k0nsta/rigger/internal/app"
 	"github.com/k0nsta/rigger/internal/engine"
 	"github.com/k0nsta/rigger/internal/repo"
+	"github.com/k0nsta/rigger/internal/sh"
 	"github.com/k0nsta/rigger/internal/tui"
 )
 
@@ -22,7 +23,8 @@ func (c *cli) interactive(ctx context.Context, f sessionFlags) error {
 		Host:       s.Host,
 		HostIsNew:  s.HostIsNew,
 		Platform:   s.Platform,
-		Repo:       s.Repo,
+		Repo:       sh.Tilde(s.Home, s.Repo),
+		Home:       s.Home,
 		Components: s.PlatformComponents(),
 		Groups:     s.Manifest.GroupOrder(),
 		Manual:     s.Manual,

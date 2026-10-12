@@ -226,3 +226,15 @@ func Lines(out string) []string {
 	}
 	return lines
 }
+
+// Tilde writes home as ~ in text shown to the user (paths, git's own messages).
+func Tilde(home, text string) string {
+	if len(home) < 2 {
+		return text
+	}
+	home = strings.TrimSuffix(home, "/")
+	if text == home {
+		return "~"
+	}
+	return strings.ReplaceAll(text, home+"/", "~/")
+}
