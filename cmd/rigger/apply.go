@@ -45,7 +45,10 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 	}
 	pending := 0
 	for _, cs := range statuses {
-		if !cs.Settled() {
+		switch {
+		case cs.OfferOnly():
+			fmt.Fprintf(c.out, "\n%s: %s (pick it in the TUI: rigger)\n", cs.ID(), cs.Summary)
+		case !cs.Settled():
 			pending++
 		}
 	}

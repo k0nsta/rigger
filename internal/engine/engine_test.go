@@ -232,3 +232,29 @@ components:
 `, map[string]string{}, map[string]sh.Result{"check-s": {Code: 1}})
 	assert.True(t, NeedsSudo(plan(t, e, "s")))
 }
+
+func TestApplyLeavesUndecidedLayoutsOffer(t *testing.T) {
+	e, _ := newEngine(t, `
+version: 1
+components:
+  - {id: lay, group: g, layouts: {src: app/layouts, dst: ~/App, files: [windows.json]}}
+`, map[string]string{"app/layouts/other-mac/windows.json": "{}"}, map[string]sh.Result{})
+	statuses := plan(t, e, "lay")
+	require.Equal(t, action.FreshTarget, statuses[0].State)
+	assert.True(t, statuses[0].OfferOnly())
+
+	var started []string
+	outcomes := e.Apply(context.Background(), statuses, Decisions{}, func(ev Event) {
+		if ev.Kind == Started {
+			started = append(started, ev.Component)
+		}
+	})
+	assert.Empty(t, started, "no pick, no import step")
+	assert.Equal(t, Done, outcomes[0].Kind)
+	assert.NoFileExists(t, filepath.Join(e.Env.Home, "App", "windows.json"))
+
+	key := statuses[0].Actions[0].Key()
+	outcomes = e.Apply(context.Background(), statuses, Decisions{ImportFrom: map[string]string{key: "other-mac"}}, nil)
+	assert.Equal(t, Done, outcomes[0].Kind)
+	assert.FileExists(t, filepath.Join(e.Env.Home, "App", "windows.json"))
+}

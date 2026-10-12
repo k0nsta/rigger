@@ -59,7 +59,7 @@ func (e *Engine) Apply(ctx context.Context, statuses []ComponentStatus, d Decisi
 			outcomes = append(outcomes, Outcome{Component: id, Kind: Skipped, Err: err})
 			continue
 		}
-		if cs.Settled() {
+		if cs.Settled() || (cs.OfferOnly() && !d.importsInto(cs)) {
 			emit(Event{Component: id, Kind: Done, Text: "already ok"})
 			outcomes = append(outcomes, Outcome{Component: id, Kind: Done})
 			continue

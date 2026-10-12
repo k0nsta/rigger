@@ -37,7 +37,7 @@ func (c *cli) status(ctx context.Context, args []string) error {
 		fmt.Fprintf(c.out, "\nmissing secrets (add to ~/.config/rigger/secrets.env): %s\n", strings.Join(missing, ", "))
 	}
 	for _, cs := range statuses {
-		if !cs.Settled() {
+		if !cs.Settled() && !cs.OfferOnly() {
 			return exitCode(1)
 		}
 	}

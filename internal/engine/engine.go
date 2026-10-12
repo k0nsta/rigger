@@ -94,6 +94,10 @@ func (c ComponentStatus) ID() string { return c.Component.ID }
 // Settled reports whether nothing needs doing.
 func (c ComponentStatus) Settled() bool { return c.State.Settled() }
 
+// OfferOnly reports whether the only thing to do is an optional layouts import, which needs
+// a pick in the TUI: apply --yes and status treat it as settled.
+func (c ComponentStatus) OfferOnly() bool { return c.State == action.FreshTarget }
+
 // severity orders statuses; the worst action decides the component state.
 func severity(s action.Status) int {
 	switch s {
@@ -327,4 +331,14 @@ func MissingSecrets(statuses []ComponentStatus, secrets *action.Secrets) []strin
 		}
 	}
 	return out
+}
+
+// importsInto reports whether a layouts import was picked for one of cs's actions.
+func (d Decisions) importsInto(cs ComponentStatus) bool {
+	for _, a := range cs.Actions {
+		if d.ImportFrom[a.Key()] != "" {
+			return true
+		}
+	}
+	return false
 }
