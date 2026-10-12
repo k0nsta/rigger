@@ -103,7 +103,7 @@ random_host() {
 	local dir=$1 name=$2 seed=$3 comps pkgs
 	comps=$(rigger_local status --repo "$dir" --host "$name" --profile "$RANDOM_PROFILE" |
 		awk 'NR>3 && NF {print $1}' | grep -vxE 'xcode-clt|homebrew' || true)
-	pkgs=$(cat "$dir"/brew/*.Brewfile 2>/dev/null | sed -n 's/^\(brew\|cask\) "\([^"]*\)".*/\2/p' | sed 's#.*/##' | sort -u)
+	pkgs=$(cat "$dir"/brew/*.Brewfile 2>/dev/null | sed -En 's/^(brew|cask) "([^"]*)".*/\2/p' | sed 's#.*/##' | sort -u)
 	python3 -I - "$seed" "$RANDOM_PROFILE" "$comps" "$pkgs" >"$dir/hosts/$name.yaml" <<'PY'
 import random, sys
 seed, profile, comps, pkgs = sys.argv[1], sys.argv[2], sys.argv[3].split(), sys.argv[4].split()
