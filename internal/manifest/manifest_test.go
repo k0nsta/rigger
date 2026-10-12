@@ -124,6 +124,11 @@ func TestValidateErrors(t *testing.T) {
 			`component "b": dst ~/.x is already used by "a"`,
 		},
 		{"unreferenced dir", `components: [{id: a, group: base, cmds: [{run: x}]}]`, "repo dir dots/ is not used"},
+		{
+			"required package in no Brewfile",
+			`components: [{id: a, group: base, links: [{src: dots/rc, dst: ~/.rc}]}, {id: b, group: base, requires: [a], requires_packages: [pipx], cmds: [{run: x}]}]`,
+			`component "b": requires package "pipx", which is in no Brewfile`,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -174,4 +179,18 @@ func TestExampleManifest(t *testing.T) {
 		require.NoError(t, err, name)
 		assert.NotEmpty(t, ids, name)
 	}
+}
+
+func TestRequiredPackages(t *testing.T) {
+	repo := fakeRepo(t, map[string]string{"brew/dev.Brewfile": "# python apps\nbrew \"pipx\"\ncask \"k0nsta/apps/agr\"\n"})
+	m := parse(t, `
+version: 1
+components:
+  - {id: dev, group: base, brewfile: brew/dev.Brewfile}
+  - {id: tools, group: base, requires: [dev], requires_packages: [pipx, k0nsta/apps/agr], cmds: [{run: x}]}
+  - {id: more, group: base, requires: [tools], requires_packages: [pipx], cmds: [{run: y}]}
+`)
+	require.NoError(t, m.Validate(repo), "packages in a transitively required Brewfile are fine")
+	assert.Equal(t, map[string]string{"pipx": "tools", "k0nsta/apps/agr": "tools"}, m.RequiredPackages([]string{"dev", "tools", "more"}))
+	assert.Empty(t, m.RequiredPackages([]string{"dev"}))
 }

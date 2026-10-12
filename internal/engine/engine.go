@@ -118,6 +118,7 @@ func severity(s action.Status) int {
 
 // Probe inspects every action of the resolved components without changing anything.
 func (e *Engine) Probe(ctx context.Context, res manifest.Resolution, exclude map[string]bool) ([]ComponentStatus, error) {
+	exclude = withoutRequired(exclude, e.Manifest.RequiredPackages(res.Order))
 	out := make([]ComponentStatus, 0, len(res.Order))
 	for _, id := range res.Order {
 		c := e.Manifest.Component(id)
@@ -341,4 +342,18 @@ func (d Decisions) importsInto(cs ComponentStatus) bool {
 		}
 	}
 	return false
+}
+
+// withoutRequired drops the packages a picked component requires from exclude (a copy).
+func withoutRequired(exclude map[string]bool, required map[string]string) map[string]bool {
+	if len(required) == 0 {
+		return exclude
+	}
+	out := make(map[string]bool, len(exclude))
+	for pkg, ex := range exclude {
+		if _, needed := required[pkg]; !needed {
+			out[pkg] = ex
+		}
+	}
+	return out
 }

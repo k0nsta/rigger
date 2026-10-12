@@ -57,11 +57,14 @@ type Component struct {
 	Platforms   []string `yaml:"platforms"`
 	Requires    []string `yaml:"requires"`
 	Brewfile    string   `yaml:"brewfile"`
-	Apt         []string `yaml:"apt"`
-	Links       []Link   `yaml:"links"`
-	Seeds       []Seed   `yaml:"seeds"`
-	Layouts     *Layouts `yaml:"layouts"`
-	Cmds        []Cmd    `yaml:"cmds"`
+	// RequiresPackages are Brewfile entries (as written) this component runs, e.g. pipx for a
+	// `pipx install` cmd: picking the component installs them even when the host excludes them.
+	RequiresPackages []string `yaml:"requires_packages"`
+	Apt              []string `yaml:"apt"`
+	Links            []Link   `yaml:"links"`
+	Seeds            []Seed   `yaml:"seeds"`
+	Layouts          *Layouts `yaml:"layouts"`
+	Cmds             []Cmd    `yaml:"cmds"`
 }
 
 // Link symlinks Dst to the repo path Src.
@@ -201,6 +204,24 @@ func (m *Manifest) expand(name string, visiting, seen map[string]bool, out *[]st
 		}
 	}
 	return nil
+}
+
+// RequiredPackages maps each package that a component in ids requires to the first such
+// component; these packages are installed whatever the excludes say.
+func (m *Manifest) RequiredPackages(ids []string) map[string]string {
+	out := map[string]string{}
+	for _, id := range ids {
+		c := m.Component(id)
+		if c == nil {
+			continue
+		}
+		for _, pkg := range c.RequiresPackages {
+			if _, ok := out[pkg]; !ok {
+				out[pkg] = id
+			}
+		}
+	}
+	return out
 }
 
 // ProfileExcludePackages returns the profile's default package excludes, including "@" parents.

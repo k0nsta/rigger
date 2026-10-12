@@ -81,9 +81,11 @@ Backups go to `~/.local/state/rigger/backups/<timestamp>/`. Nothing is ever dele
 
 Picking a component pulls in what it requires ("needed by …" in the TUI). A requirement that does not run on this platform is dropped, so `requires: [core-cli, linux-core]` works on macOS and Linux.
 
+`requires_packages: [pipx]` names Brewfile entries (as written) the component runs. While the component is picked they are installed even if the host excludes them, and the TUI shows them locked as "needed by …".
+
 ### Validation
 
-Unique ids, known groups/platforms, every `src`, `brewfile` and repo script exists (a layouts dir may not exist yet), `requires`/profile references exist, no cycles, no `dst` inside another link's `dst` (a seed must never write into a linked repo dir), every top-level dir is used by a component or listed in `unmanaged`.
+Unique ids, known groups/platforms, every `src`, `brewfile` and repo script exists (a layouts dir may not exist yet), `requires`/profile references exist, no cycles, every `requires_packages` entry is in a Brewfile of the component or one it requires, no `dst` inside another link's `dst` (a seed must never write into a linked repo dir), every top-level dir is used by a component or listed in `unmanaged`.
 
 ## hosts/\<name\>.yaml
 

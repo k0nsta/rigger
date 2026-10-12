@@ -140,7 +140,9 @@ func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		default:
 			if isSpace(key) && len(m.pkgList) > 0 {
 				name := m.pkgList[m.pkgCursor].Name
-				m.exclude[name] = !m.exclude[name]
+				if m.neededBy(name) == "" {
+					m.exclude[name] = !m.exclude[name]
+				}
 			}
 		}
 
@@ -254,11 +256,20 @@ func (m *Model) resolve() {
 
 // cfgResolve resolves without the manifest by walking Requires of the known components.
 func (m *Model) cfgResolve(picked []string) (manifest.Resolution, error) {
+	return m.cfgManifest().Resolve(m.cfg.Platform, picked)
+}
+
+func (m *Model) cfgManifest() *manifest.Manifest {
 	mf := &manifest.Manifest{}
 	for _, c := range m.cfg.Components {
 		mf.Components = append(mf.Components, *c)
 	}
-	return mf.Resolve(m.cfg.Platform, picked)
+	return mf
+}
+
+// neededBy names the picked component that requires pkg; such a package cannot be unpicked.
+func (m *Model) neededBy(pkg string) string {
+	return m.cfgManifest().RequiredPackages(m.res.Order)[pkg]
 }
 
 func (m *Model) onComponentsKey(key string) (tea.Model, tea.Cmd) {

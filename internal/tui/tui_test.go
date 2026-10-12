@@ -15,8 +15,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/k0nsta/rigger/internal/action"
 	"github.com/k0nsta/rigger/internal/app"
 	"github.com/k0nsta/rigger/internal/engine"
+	"github.com/k0nsta/rigger/internal/manifest"
 	"github.com/k0nsta/rigger/internal/testutil"
 )
 
@@ -402,4 +404,33 @@ func TestFailureOutputKept(t *testing.T) {
 	assert.Contains(t, content, "==> zsh")
 	assert.Contains(t, content, "already an App at")
 	assert.Contains(t, content, "failed: brew bundle failed (exit 1)")
+}
+
+func TestRequiredPackageCannotBeUnpicked(t *testing.T) {
+	m := &Model{
+		cfg: Config{Components: []*manifest.Component{
+			{ID: "dev", Group: "g", Brewfile: "B"},
+			{ID: "pipx-tools", Group: "g", Requires: []string{"dev"}, RequiresPackages: []string{"pipx"}},
+		}},
+		picked:   map[string]bool{"pipx-tools": true},
+		exclude:  map[string]bool{"pipx": true},
+		pkgState: map[string]string{},
+		pkgList:  []action.BrewPackage{{Kind: "brew", Name: "pipx"}, {Kind: "brew", Name: "node"}},
+		screen:   scrPackages,
+		pkgComp:  "dev",
+	}
+	m.resolve()
+
+	var b strings.Builder
+	m.viewPackages(&b)
+	assert.Contains(t, b.String(), "needed by pipx-tools")
+
+	press(t, m, "space")
+	assert.True(t, m.exclude["pipx"], "space on a required package changes nothing")
+	press(t, m, "down", "space")
+	assert.True(t, m.exclude["node"])
+
+	m.picked = map[string]bool{"dev": true}
+	m.resolve()
+	assert.Empty(t, m.neededBy("pipx"), "unpicking pipx-tools releases pipx")
 }

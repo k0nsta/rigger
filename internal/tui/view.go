@@ -143,7 +143,7 @@ func (m *Model) excludedIn(cs engine.ComponentStatus) int {
 	n := 0
 	for _, a := range cs.Actions {
 		for _, p := range a.BrewPackages() {
-			if m.exclude[p.Name] {
+			if m.exclude[p.Name] && m.neededBy(p.Name) == "" {
 				n++
 			}
 		}
@@ -156,8 +156,10 @@ func (m *Model) viewPackages(b *strings.Builder) {
 	from, to := m.visible(len(m.pkgList), m.pkgCursor, 10)
 	for i := from; i < to; i++ {
 		p := m.pkgList[i]
-		box := "[x]"
-		if m.exclude[p.Name] {
+		box, comment := "[x]", p.Comment
+		if by := m.neededBy(p.Name); by != "" {
+			box, comment = "[■]", "needed by "+by
+		} else if m.exclude[p.Name] {
 			box = "[ ]"
 		}
 		state := m.pkgState[p.Name]
@@ -169,7 +171,7 @@ func (m *Model) viewPackages(b *strings.Builder) {
 		case "missing":
 			styled = todoStyle.Render(padded)
 		}
-		line := fmt.Sprintf("%s %-5s %-34s %s %s", box, p.Kind, truncate(p.Name, 34), styled, dimStyle.Render(p.Comment))
+		line := fmt.Sprintf("%s %-5s %-34s %s %s", box, p.Kind, truncate(p.Name, 34), styled, dimStyle.Render(comment))
 		if i == m.pkgCursor {
 			b.WriteString(cursorStyle.Render("› ") + line + "\n")
 		} else {

@@ -83,6 +83,8 @@ func (m *Manifest) Validate(repoDir string) error {
 
 	if cycle := m.findCycle(); cycle != "" {
 		add("requires cycle: %s", cycle)
+	} else {
+		errs = append(errs, m.checkRequiredPackages(repoDir)...)
 	}
 
 	for name, p := range m.Profiles {
@@ -247,4 +249,54 @@ func (m *Manifest) checkUnreferencedDirs(repoDir string) []error {
 		errs = append(errs, fmt.Errorf("repo dir %s/ is not used by any component (add one or list it under unmanaged)", d))
 	}
 	return errs
+}
+
+// checkRequiredPackages makes sure every requires_packages entry is in the Brewfile of the
+// component or of one it requires, so picking the component can actually install it.
+func (m *Manifest) checkRequiredPackages(repoDir string) []error {
+	var errs []error
+	for i := range m.Components {
+		c := &m.Components[i]
+		if len(c.RequiresPackages) == 0 {
+			continue
+		}
+		var text strings.Builder
+		for _, id := range m.withRequires(c.ID) {
+			if r := m.Component(id); r != nil && r.Brewfile != "" {
+				data, err := os.ReadFile(filepath.Join(repoDir, r.Brewfile))
+				if err == nil {
+					text.Write(data)
+					text.WriteByte('\n')
+				}
+			}
+		}
+		for _, pkg := range c.RequiresPackages {
+			entry := regexp.MustCompile(`(?m)^\s*(brew|cask|mas)\s+"` + regexp.QuoteMeta(pkg) + `"`)
+			if !entry.MatchString(text.String()) {
+				errs = append(errs, fmt.Errorf("component %q: requires package %q, which is in no Brewfile of it or the components it requires", c.ID, pkg))
+			}
+		}
+	}
+	return errs
+}
+
+// withRequires is id plus every component it requires, transitively (no cycles).
+func (m *Manifest) withRequires(id string) []string {
+	seen := map[string]bool{}
+	var out []string
+	var walk func(string)
+	walk = func(id string) {
+		if seen[id] {
+			return
+		}
+		seen[id] = true
+		out = append(out, id)
+		if c := m.Component(id); c != nil {
+			for _, r := range c.Requires {
+				walk(r)
+			}
+		}
+	}
+	walk(id)
+	return out
 }

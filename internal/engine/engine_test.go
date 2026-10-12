@@ -258,3 +258,41 @@ components:
 	assert.Equal(t, Done, outcomes[0].Kind)
 	assert.FileExists(t, filepath.Join(e.Env.Home, "App", "windows.json"))
 }
+
+func TestRequiredPackagesIgnoreExcludes(t *testing.T) {
+	e, _ := newEngine(t, `
+version: 1
+components:
+  - {id: dev, group: g, brewfile: Brewfile}
+  - {id: pipx-tools, group: g, requires: [dev], requires_packages: [pipx], cmds: [{run: pipx install poetry}]}
+`, map[string]string{"Brewfile": "brew \"pipx\"\nbrew \"node\"\n"}, map[string]sh.Result{
+		"command -v brew": {Code: 1},
+	})
+	exclude := map[string]bool{"pipx": true, "node": true}
+	probe := func(picked ...string) action.BrewProbe {
+		t.Helper()
+		res, err := e.Manifest.Resolve(e.Platform, picked)
+		require.NoError(t, err)
+		statuses, err := e.Probe(context.Background(), res, exclude)
+		require.NoError(t, err)
+		p, ok := statuses[0].Actions[0].Brew()
+		require.True(t, ok)
+		return p
+	}
+
+	p := probe("pipx-tools")
+	assert.Equal(t, []string{"pipx"}, pkgNames(p.Missing), "pipx-tools needs pipx: installed despite the exclude")
+	assert.Equal(t, []string{"node"}, pkgNames(p.Excluded))
+
+	p = probe("dev")
+	assert.Empty(t, p.Missing, "without pipx-tools the exclude holds")
+	assert.True(t, exclude["pipx"], "the caller's excludes are not changed")
+}
+
+func pkgNames(list []action.BrewPackage) []string {
+	var out []string
+	for _, p := range list {
+		out = append(out, p.Name)
+	}
+	return out
+}
