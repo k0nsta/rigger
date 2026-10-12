@@ -202,8 +202,8 @@ func TestSyncRoundTripBetweenMachines(t *testing.T) {
 	assert.Contains(t, out, "update")
 	assert.Contains(t, testutil.ReadFile(t, filepath.Join(b.home, ".config", "tool", "config.toml")), `theme = "light"`)
 
-	// a credential is refused by the sync gate
-	testutil.WriteFile(t, filepath.Join(repoA, "git", ".gitconfig"), "[credential]\n  token = ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789\n")
+	// a credential is refused by the sync gate (a fake token, split so secret scanners do not flag the source)
+	testutil.WriteFile(t, filepath.Join(repoA, "git", ".gitconfig"), "[credential]\n  token = ghp_"+"abcdefghijklmnopqrstuvwxyz0123456789\n")
 	out = a.rigger(false, "sync", "--yes", "--host", "a")
 	assert.Contains(t, out, "possible credential staged")
 	log := gitIn(t, repoA, "log", "-1", "--format=%s")

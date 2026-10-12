@@ -32,4 +32,11 @@ make build    # bin/rigger
 
 ## Next
 
-Land order of plans: `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`. Before going public: fake-looking token fixtures, gitleaks over history.
+Land order of plans: `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`.
+
+## Going public
+
+- History was rewritten on 2026-10-12 (fixtures split, #1 retitled, plan names without a ticket prefix); the pre-cleanup repo with PRs #1–#24 is the private `k0nsta/rigger-archive`.
+- Plans here are `docs/plans/YYYYMMDD-<slug>.md`, without the `PMC-0` prefix used in other repos.
+- Token-shaped test fixtures stay split (`"ghp_" + "…"`) so nothing in the source looks like a real token; `gitleaks git .` must stay clean.
+- Releases need the `HOMEBREW_TAP_GITHUB_TOKEN` Actions secret, not set yet.
