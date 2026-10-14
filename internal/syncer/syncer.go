@@ -194,6 +194,9 @@ type Stray struct {
 	Desc string // Homebrew's one-line description, when known
 }
 
+// packageName matches a formula or cask name, optionally tap-qualified.
+var packageName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9@._+-]*(/[A-Za-z0-9][A-Za-z0-9@._+-]*)*$`)
+
 // Strays lists `brew leaves` and installed casks that no Brewfile mentions and ignore does not cover.
 func Strays(ctx context.Context, r Runner, brewfiles []action.Brew, ignore []string) ([]Stray, error) {
 	known := map[string]bool{}
@@ -221,6 +224,9 @@ func Strays(ctx context.Context, r Runner, brewfiles []action.Brew, ignore []str
 			return nil, fmt.Errorf("brew %s failed: %s", q.args[0], strings.TrimSpace(res.Output))
 		}
 		for _, name := range sh.Lines(res.Output) {
+			if !packageName.MatchString(name) {
+				continue // brew progress such as "==> Downloading Homebrew API data"
+			}
 			short := name[strings.LastIndex(name, "/")+1:]
 			if !known[q.kind+":"+short] {
 				out = append(out, Stray{Kind: q.kind, Name: name})

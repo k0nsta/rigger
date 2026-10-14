@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/k0nsta/rigger/internal/app"
 	"github.com/k0nsta/rigger/internal/manifest"
 	"github.com/k0nsta/rigger/internal/testutil"
 )
@@ -54,7 +55,8 @@ func TestHandleStraysShowsProfilesAndWritesAnswers(t *testing.T) {
 	testutil.WriteFile(t, filepath.Join(repo, "hosts", "test-box.yaml"), "profile: laptop\n")
 
 	c, out := newCLI(t, true)
-	testutil.WriteFile(t, filepath.Join(c.home, ".local", "bin", "brew"), `#!/bin/sh
+	bin := t.TempDir()
+	testutil.WriteFile(t, filepath.Join(bin, "brew"), `#!/bin/sh
 case "$*" in
 "leaves --installed-on-request") printf 'git\nagg\nvhs\nlocal-tool\n' ;;
 "list --cask -1") printf 'slack\nzoom\n' ;;
@@ -63,11 +65,12 @@ case "$*" in
 *) echo "unexpected brew $*" >&2; exit 1 ;;
 esac
 `)
-	require.NoError(t, os.Chmod(filepath.Join(c.home, ".local", "bin", "brew"), 0o755))
-	t.Setenv("PATH", filepath.Join(c.home, ".local", "bin")+":"+os.Getenv("PATH"))
+	require.NoError(t, os.Chmod(filepath.Join(bin, "brew"), 0o755))
 
-	f := sessionFlags{repo: repo, host: "test-box"}
-	s, sel, err := f.open(c.home)
+	// the fake brew must win over a real one in /opt/homebrew/bin
+	s, err := app.Open(app.Options{Repo: repo, Host: "test-box", Home: c.home, ExtraEnv: []string{"PATH=" + bin + ":/usr/bin:/bin"}})
+	require.NoError(t, err)
+	sel, err := s.Select("", nil)
 	require.NoError(t, err)
 	s.Platform = manifest.Darwin
 	// sorted: agg → core, local-tool → ignore, vhs → a typo, then apps, zoom → later
@@ -126,8 +129,19 @@ func gitT(t *testing.T, dir string, args ...string) string {
 }
 
 func TestSyncAppliesPickedAndDropsFromHost(t *testing.T) {
-	seed := copyExample(t)
-	testutil.WriteFile(t, filepath.Join(seed, "hosts", "box.yaml"), "profile: laptop\n")
+	// links only, so the pending list is the same on every machine
+	seed := testutil.Tree(t, map[string]string{
+		"manifest.yaml": `version: 1
+profiles:
+  laptop: {components: [zsh, git]}
+components:
+  - {id: zsh, group: shell, links: [{src: zsh/.zshrc, dst: ~/.zshrc}]}
+  - {id: git, group: shell, links: [{src: git/.gitconfig, dst: ~/.gitconfig}]}
+`,
+		"zsh/.zshrc":     "# zsh\n",
+		"git/.gitconfig": "# git\n",
+		"hosts/box.yaml": "profile: laptop\n",
+	})
 	gitT(t, seed, "init", "-q", "-b", "main")
 	gitT(t, seed, "add", ".")
 	gitT(t, seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")

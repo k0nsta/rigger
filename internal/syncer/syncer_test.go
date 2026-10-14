@@ -123,10 +123,10 @@ func TestStrays(t *testing.T) {
 	r.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, c sh.Cmd) (sh.Result, error) {
 		switch c.String() {
 		case "brew leaves --installed-on-request":
-			return sh.Result{Output: "git\nhttpie\nowner/apps/tool\nlocal-only\n"}, nil
+			return sh.Result{Output: "\x1b[32m==>\x1b[0m \x1b[1mDownloading Homebrew API data\x1b[0m\ngit\nhttpie\nowner/apps/tool\nlocal-only\ngcc@14\n"}, nil
 		case "brew list --cask -1":
 			return sh.Result{Output: "slack\nsteam\n"}, nil
-		case "brew info --json=v2 --formula httpie":
+		case "brew info --json=v2 --formula gcc@14 httpie":
 			return sh.Result{Output: `{"formulae":[{"name":"httpie","full_name":"httpie","desc":"User-friendly cURL replacement"}],"casks":[]}`}, nil
 		case "brew info --json=v2 --cask steam":
 			return sh.Result{Code: 1, Output: "Error: offline"}, nil
@@ -139,6 +139,7 @@ func TestStrays(t *testing.T) {
 	strays, err := Strays(context.Background(), r, brewfiles, []string{"local-only"})
 	require.NoError(t, err)
 	assert.Equal(t, []Stray{
+		{Kind: "brew", Name: "gcc@14"},
 		{Kind: "brew", Name: "httpie", Desc: "User-friendly cURL replacement"},
 		{Kind: "cask", Name: "steam"}, // a failing brew info only loses the description
 	}, strays)
