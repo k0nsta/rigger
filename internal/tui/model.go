@@ -44,6 +44,8 @@ type Config struct {
 	Running   func(process string) bool
 	// LogDir receives one log file per run; empty disables it.
 	LogDir string
+	// Warning is shown under the header on every screen, e.g. the repo is off its default branch.
+	Warning string
 }
 
 // PasswordRequest asks the user for the sudo password; the answer goes to Reply.
@@ -242,7 +244,11 @@ func (m *Model) profileOptions() []string {
 		opts = append(opts, "")
 	}
 	for _, p := range m.cfg.Profiles {
-		opts = append(opts, p.Name)
+		// the saved selection is that profile with this host's changes; offering the bare
+		// profile too would silently drop them
+		if m.cfg.Current == nil || p.Name != m.cfg.Current.Profile {
+			opts = append(opts, p.Name)
+		}
 	}
 	return opts
 }

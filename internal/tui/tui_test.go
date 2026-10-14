@@ -435,3 +435,14 @@ func TestRequiredPackageCannotBeUnpicked(t *testing.T) {
 	m.resolve()
 	assert.Empty(t, m.neededBy("pipx"), "unpicking pipx-tools releases pipx")
 }
+
+func TestProfileScreenDoesNotOfferTheSavedProfileBare(t *testing.T) {
+	m := &Model{cfg: Config{
+		Profiles: []Profile{{Name: "laptop"}, {Name: "minimal"}},
+		Current:  &app.Selection{Profile: "laptop"},
+	}}
+	assert.Equal(t, []string{"", "minimal"}, m.profileOptions(), "laptop is the saved selection")
+
+	m.cfg.Current = nil
+	assert.Equal(t, []string{"laptop", "minimal"}, m.profileOptions())
+}

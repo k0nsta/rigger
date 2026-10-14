@@ -49,7 +49,11 @@ func (m *Model) header() string {
 	if profile == "" {
 		profile = "—"
 	}
-	return titleStyle.Render("rigger") + dimStyle.Render(fmt.Sprintf("  %s · %s · profile %s · %s", m.cfg.Host, m.cfg.Platform, profile, m.cfg.Repo))
+	h := titleStyle.Render("rigger") + dimStyle.Render(fmt.Sprintf("  %s · %s · profile %s · %s", m.cfg.Host, m.cfg.Platform, profile, m.cfg.Repo))
+	if m.cfg.Warning != "" {
+		h += "\n" + todoStyle.Render("warning: "+m.cfg.Warning)
+	}
+	return h
 }
 
 func (m *Model) viewHost(b *strings.Builder) {

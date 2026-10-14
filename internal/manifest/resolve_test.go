@@ -54,3 +54,20 @@ func TestPlatformComponents(t *testing.T) {
 	m := parse(t, resolveSample)
 	assert.Equal(t, []string{"apt-core", "zsh", "theme"}, m.PlatformComponents(Linux))
 }
+
+func TestProfilesOf(t *testing.T) {
+	m := parse(t, resolveSample+`
+profiles:
+  personal: {components: [theme, mac-app]}
+  work: {components: ["@personal"], exclude: [mac-app]}
+`)
+	got, err := m.ProfilesOf(Darwin)
+	require.NoError(t, err)
+	assert.Equal(t, map[string][]string{
+		"brew":    {"personal", "work"}, // pulled in by theme's prerequisites
+		"core":    {"personal", "work"},
+		"zsh":     {"personal", "work"},
+		"theme":   {"personal", "work"},
+		"mac-app": {"personal"},
+	}, got)
+}

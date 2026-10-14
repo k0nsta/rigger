@@ -33,6 +33,7 @@ func (c *cli) status(ctx context.Context, args []string) error {
 		return err
 	}
 	fmt.Fprintf(c.out, "%s · %s · profile %s · repo %s\n\n", s.Host, s.Platform, orNone(sel.Profile), sh.Tilde(s.Home, s.Repo))
+	c.warnHead(ctx, s)
 	printStatuses(c.out, statuses, res)
 	if missing := engine.MissingSecrets(statuses, s.Secrets); len(missing) > 0 {
 		fmt.Fprintf(c.out, "\nmissing secrets (add to ~/.config/rigger/secrets.env): %s\n", strings.Join(missing, ", "))

@@ -31,6 +31,9 @@ func (c *cli) interactive(ctx context.Context, f sessionFlags) error {
 		Running:    processRunning(ctx, s.Exec),
 		LogDir:     runLogDir(s.Home),
 	}
+	if head, err := repo.ReadHead(ctx, s.Exec, s.Repo); err == nil && head.OffDefault() {
+		cfg.Warning = head.Problem() + "\n" + head.Fix(s.Home)
+	}
 	passwords := make(chan tui.PasswordRequest)
 	cfg.Passwords = passwords
 	stopAskpass, err := s.StartAskpass(tui.AskFunc(ctx, passwords))

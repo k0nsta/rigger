@@ -102,7 +102,7 @@ include_packages: [zoom]   # profile default excludes picked here anyway
 ignore_packages: [steam]   # installed here on purpose, not in any Brewfile
 ```
 
-Components that no longer exist in the manifest are ignored. The older `components: [...]`
+`--profile` naming the host's own profile keeps these adds and removes; another profile starts fresh. Components that no longer exist in the manifest are ignored. The older `components: [...]`
 full list is still read.
 
 ## Outside the repo
@@ -126,4 +126,6 @@ Then `rigger sync` shares it.
 
 ## Sync
 
-`rigger sync`: export layouts → offer stray Homebrew packages (add to a Brewfile or ignore) → you pick changed files → credential gate (built-in patterns, plus `gitleaks` when installed) → commit `sync(<host>): …` → `git pull --rebase` (a conflict is aborted; live configs never get conflict markers) → apply what other machines added → push.
+`rigger sync`: export layouts → offer stray Homebrew packages (add to a Brewfile or ignore) → you pick changed files → credential gate (built-in patterns, plus `gitleaks` when installed) → commit `sync(<host>): …` → `git pull --rebase` (a conflict is aborted; live configs never get conflict markers) → apply what other machines added (each listed with why it is picked: its profile, `hosts/<name>.yaml`, or `needed by`; `-n` drops one from this host for good by writing `remove`) → push.
+
+The checkout is live: links point into it, so it stays on the default branch (`origin/HEAD`, else `main`/`master`). Off it, `sync` refuses and `status`, `apply` and the TUI warn. Do feature work in a `git worktree`.

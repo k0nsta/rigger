@@ -130,3 +130,61 @@ func TestSanitizeHost(t *testing.T) {
 	assert.Equal(t, "macos-c30", sanitizeHost("MacOS-C30"))
 	assert.Equal(t, "a-b", sanitizeHost("a.b"))
 }
+
+func TestNamingTheHostProfileKeepsHostChanges(t *testing.T) {
+	s := open(t, deltaManifest)
+	testutil.WriteFile(t, state.HostPath(s.Repo, "box"), "profile: laptop\nadd: [c]\nremove: [b]\nexclude_packages: [fx]\n")
+	s = reopen(t, s)
+
+	sel, err := s.Select("laptop", nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "c"}, sel.Picked, "b stays removed, c stays added")
+	assert.Equal(t, map[string]bool{"fx": true, "big-cask": true}, sel.Exclude)
+
+	require.NoError(t, s.Save(sel))
+	hf, err := state.LoadHost(state.HostPath(s.Repo, "box"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b"}, hf.Remove, "a save does not lose the remove")
+}
+
+const originManifest = `
+version: 1
+profiles:
+  laptop:
+    components: [a, b]
+components:
+  - {id: a, group: g, cmds: [{run: "true"}]}
+  - {id: b, group: g, requires: [lib], cmds: [{run: "true"}]}
+  - {id: c, group: g, cmds: [{run: "true"}]}
+  - {id: lib, group: g, cmds: [{run: "true"}]}
+`
+
+func TestOrigin(t *testing.T) {
+	s := open(t, originManifest)
+	testutil.WriteFile(t, state.HostPath(s.Repo, "box"), "profile: laptop\nadd: [c]\n")
+	s = reopen(t, s)
+	sel, err := s.Select("", nil)
+	require.NoError(t, err)
+	res, err := s.Manifest.Resolve(s.Platform, sel.Picked)
+	require.NoError(t, err)
+	assert.Equal(t, "in profile laptop", s.Origin(sel, res, "a"))
+	assert.Equal(t, "added in hosts/box.yaml", s.Origin(sel, res, "c"))
+	assert.Equal(t, "needed by b", s.Origin(sel, res, "lib"))
+}
+
+func TestDropFromHost(t *testing.T) {
+	s := open(t, originManifest)
+	testutil.WriteFile(t, state.HostPath(s.Repo, "box"), "profile: laptop\nadd: [c]\n")
+	s = reopen(t, s)
+
+	require.NoError(t, s.DropFromHost("a"), "a profile component joins remove")
+	require.NoError(t, s.DropFromHost("c"), "a host addition leaves add")
+	require.ErrorContains(t, s.DropFromHost("lib"), "lib is needed by b: drop that instead")
+
+	hf, err := state.LoadHost(state.HostPath(s.Repo, "box"))
+	require.NoError(t, err)
+	assert.Equal(t, &state.HostFile{Profile: "laptop", Remove: []string{"a"}}, hf)
+	sel, err := reopen(t, s).Select("", nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b"}, sel.Picked)
+}
