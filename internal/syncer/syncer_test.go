@@ -123,23 +123,33 @@ func TestStrays(t *testing.T) {
 	r.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, c sh.Cmd) (sh.Result, error) {
 		switch c.String() {
 		case "brew leaves --installed-on-request":
-			return sh.Result{Output: "git\nhttpie\nowner/apps/tool\nlocal-only\n"}, nil
+			return sh.Result{Output: "\x1b[32m==>\x1b[0m \x1b[1mDownloading Homebrew API data\x1b[0m\ngit\nhttpie\nowner/apps/tool\nlocal-only\ngcc@14\n"}, nil
 		case "brew list --cask -1":
 			return sh.Result{Output: "slack\nsteam\n"}, nil
+		case "brew info --json=v2 --formula gcc@14 httpie":
+			return sh.Result{Output: `{"formulae":[{"name":"httpie","full_name":"httpie","desc":"User-friendly cURL replacement"}],"casks":[]}`}, nil
+		case "brew info --json=v2 --cask steam":
+			return sh.Result{Code: 1, Output: "Error: offline"}, nil
 		}
 		t.Fatalf("unexpected %s", c)
 		return sh.Result{}, nil
-	}).Times(2)
+	}).Times(4)
 
 	brewfiles := []action.Brew{{Packages: action.ParseBrewfile([]byte("brew \"git\"\nbrew \"owner/apps/tool\"\ncask \"slack\"\n"))}}
 	strays, err := Strays(context.Background(), r, brewfiles, []string{"local-only"})
 	require.NoError(t, err)
-	assert.Equal(t, []Stray{{Kind: "brew", Name: "httpie"}, {Kind: "cask", Name: "steam"}}, strays)
+	assert.Equal(t, []Stray{
+		{Kind: "brew", Name: "gcc@14"},
+		{Kind: "brew", Name: "httpie", Desc: "User-friendly cURL replacement"},
+		{Kind: "cask", Name: "steam"}, // a failing brew info only loses the description
+	}, strays)
 }
 
 func TestAddToBrewfile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "core.Brewfile")
 	testutil.WriteFile(t, path, "brew \"git\"")
 	require.NoError(t, AddToBrewfile(path, Stray{Kind: "cask", Name: "steam"}))
-	assert.Equal(t, "brew \"git\"\ncask \"steam\"\n", testutil.ReadFile(t, path))
+	require.NoError(t, AddToBrewfile(path, Stray{Kind: "brew", Name: "httpie", Desc: "User-friendly cURL replacement"}))
+	assert.Equal(t, "brew \"git\"\ncask \"steam\"\n# User-friendly cURL replacement\nbrew \"httpie\"\n", testutil.ReadFile(t, path))
+	assert.Equal(t, "User-friendly cURL replacement", action.ParseBrewfile([]byte(testutil.ReadFile(t, path)))[2].Comment, "the TUI shows it")
 }

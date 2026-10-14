@@ -1,6 +1,9 @@
 package manifest
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // Resolution is the set of components to run on one platform, in dependency order.
 type Resolution struct {
@@ -83,4 +86,29 @@ func (m *Manifest) PlatformComponents(platform string) []string {
 		}
 	}
 	return out
+}
+
+// ProfilesOf maps each component id to the sorted names of the profiles that install it on
+// platform, counting prerequisites the profile pulls in.
+func (m *Manifest) ProfilesOf(platform string) (map[string][]string, error) {
+	out := map[string][]string{}
+	names := make([]string, 0, len(m.Profiles))
+	for name := range m.Profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		ids, err := m.ExpandProfile(name)
+		if err != nil {
+			return nil, err
+		}
+		res, err := m.Resolve(platform, ids)
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range res.Order {
+			out[id] = append(out[id], name)
+		}
+	}
+	return out, nil
 }

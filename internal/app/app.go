@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 
@@ -183,8 +184,9 @@ type Selection struct {
 // ErrNoProfile means neither a profile, --only, nor a host file says what to install.
 var ErrNoProfile = errors.New("no selection for this host yet: pass --profile")
 
-// Select resolves the selection: --only, else --profile, else the host file, else the only profile.
-// A host file is applied on top of its profile, so components later added to the profile appear.
+// Select resolves the selection: --only, else the host file (when --profile is empty or its
+// profile), else --profile, else the only profile. A host file is applied on top of its
+// profile, so components later added to the profile appear.
 func (s *Session) Select(profile string, only []string) (Selection, error) {
 	sel := Selection{Exclude: map[string]bool{}}
 	hf := s.HostFile
@@ -197,7 +199,8 @@ func (s *Session) Select(profile string, only []string) (Selection, error) {
 			sel.Exclude = s.hostExcludes(hf.Profile, hf)
 		}
 		return sel, nil
-	case profile == "" && hf != nil:
+	case hf != nil && (profile == "" || profile == hf.Profile):
+		// naming the host's own profile keeps its adds and removes: it names the base, not a reset
 		picked, err := s.hostPicked(hf)
 		if err != nil {
 			return sel, err
@@ -217,11 +220,7 @@ func (s *Session) Select(profile string, only []string) (Selection, error) {
 		return sel, err
 	}
 	sel.Profile, sel.Picked = profile, ids
-	if hf != nil && hf.Profile == profile {
-		sel.Exclude = s.hostExcludes(profile, hf)
-	} else {
-		addAll(sel.Exclude, s.Manifest.ProfileExcludePackages(profile))
-	}
+	addAll(sel.Exclude, s.Manifest.ProfileExcludePackages(profile))
 	return sel, nil
 }
 
@@ -318,6 +317,65 @@ func (s *Session) Save(sel Selection) error {
 		return err
 	}
 	s.HostFile = hf
+	return nil
+}
+
+// Origin says why id is in the selection: a prerequisite, a host addition or its profile.
+func (s *Session) Origin(sel Selection, res manifest.Resolution, id string) string {
+	if by := res.AddedBecause[id]; by != "" {
+		return "needed by " + by
+	}
+	hostFile := fmt.Sprintf("hosts/%s.yaml", s.Host)
+	if hf := s.HostFile; hf != nil {
+		if slices.Contains(hf.Components, id) {
+			return "listed in " + hostFile
+		}
+		if slices.Contains(hf.Add, id) {
+			return "added in " + hostFile
+		}
+	}
+	if sel.Profile != "" {
+		if ids, err := s.Manifest.ExpandProfile(sel.Profile); err == nil && slices.Contains(ids, id) {
+			return "in profile " + sel.Profile
+		}
+	}
+	return ""
+}
+
+// DropFromHost unpicks id on this host for good: it leaves the host's additions, or joins
+// its removes when the profile brings it. A component another picked one requires stays.
+func (s *Session) DropFromHost(id string) error {
+	hf := s.HostFile
+	if hf == nil {
+		return fmt.Errorf("hosts/%s.yaml does not exist yet", s.Host)
+	}
+	isID := func(c string) bool { return c == id }
+	next := *hf
+	next.Components = slices.DeleteFunc(slices.Clone(hf.Components), isID)
+	next.Add = slices.DeleteFunc(slices.Clone(hf.Add), isID)
+	if len(next.Components) == 0 && hf.Profile != "" && !slices.Contains(hf.Remove, id) {
+		if ids, err := s.Manifest.ExpandProfile(hf.Profile); err == nil && slices.Contains(ids, id) {
+			next.Remove = append(slices.Clone(hf.Remove), id)
+		}
+	}
+	picked, err := s.hostPicked(&next)
+	if err != nil {
+		return err
+	}
+	res, err := s.Manifest.Resolve(s.Platform, picked)
+	if err != nil {
+		return err
+	}
+	if by := res.AddedBecause[id]; by != "" {
+		return fmt.Errorf("%s is needed by %s: drop that instead", id, by)
+	}
+	if slices.Contains(res.Order, id) {
+		return fmt.Errorf("%s could not be dropped from hosts/%s.yaml", id, s.Host)
+	}
+	if err := next.Save(state.HostPath(s.Repo, s.Host)); err != nil {
+		return err
+	}
+	s.HostFile = &next
 	return nil
 }
 

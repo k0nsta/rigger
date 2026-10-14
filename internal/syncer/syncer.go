@@ -5,6 +5,7 @@ package syncer
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -190,7 +191,11 @@ func (s *Syncer) Ahead(ctx context.Context) int {
 type Stray struct {
 	Kind string // brew or cask
 	Name string
+	Desc string // Homebrew's one-line description, when known
 }
+
+// packageName matches a formula or cask name, optionally tap-qualified.
+var packageName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9@._+-]*(/[A-Za-z0-9][A-Za-z0-9@._+-]*)*$`)
 
 // Strays lists `brew leaves` and installed casks that no Brewfile mentions and ignore does not cover.
 func Strays(ctx context.Context, r Runner, brewfiles []action.Brew, ignore []string) ([]Stray, error) {
@@ -219,6 +224,9 @@ func Strays(ctx context.Context, r Runner, brewfiles []action.Brew, ignore []str
 			return nil, fmt.Errorf("brew %s failed: %s", q.args[0], strings.TrimSpace(res.Output))
 		}
 		for _, name := range sh.Lines(res.Output) {
+			if !packageName.MatchString(name) {
+				continue // brew progress such as "==> Downloading Homebrew API data"
+			}
 			short := name[strings.LastIndex(name, "/")+1:]
 			if !known[q.kind+":"+short] {
 				out = append(out, Stray{Kind: q.kind, Name: name})
@@ -226,10 +234,57 @@ func Strays(ctx context.Context, r Runner, brewfiles []action.Brew, ignore []str
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Kind+out[i].Name < out[j].Kind+out[j].Name })
+	describe(ctx, r, out)
 	return out, nil
 }
 
-// AddToBrewfile appends a package line to a Brewfile.
+// describe fills Desc from `brew info`; descriptions are a nicety, so failures leave them empty.
+func describe(ctx context.Context, r Runner, strays []Stray) {
+	for _, q := range []struct{ kind, flag string }{{action.KindBrew, "--formula"}, {action.KindCask, "--cask"}} {
+		var names []string
+		for _, st := range strays {
+			if st.Kind == q.kind {
+				names = append(names, st.Name)
+			}
+		}
+		if len(names) == 0 {
+			continue
+		}
+		res, err := r.Run(ctx, sh.Cmd{Path: "brew", Args: append([]string{"info", "--json=v2", q.flag}, names...)})
+		if err != nil || res.Code != 0 {
+			continue
+		}
+		var info struct {
+			Formulae []struct {
+				Name     string `json:"name"`
+				FullName string `json:"full_name"`
+				Desc     string `json:"desc"`
+			} `json:"formulae"`
+			Casks []struct {
+				Token     string `json:"token"`
+				FullToken string `json:"full_token"`
+				Desc      string `json:"desc"`
+			} `json:"casks"`
+		}
+		if json.Unmarshal([]byte(res.Output), &info) != nil {
+			continue
+		}
+		descs := map[string]string{}
+		for _, f := range info.Formulae {
+			descs[f.Name], descs[f.FullName] = f.Desc, f.Desc
+		}
+		for _, c := range info.Casks {
+			descs[c.Token], descs[c.FullToken] = c.Desc, c.Desc
+		}
+		for i := range strays {
+			if strays[i].Kind == q.kind {
+				strays[i].Desc = descs[strays[i].Name]
+			}
+		}
+	}
+}
+
+// AddToBrewfile appends a package line to a Brewfile, under its description as a comment.
 func AddToBrewfile(path string, st Stray) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -237,6 +292,9 @@ func AddToBrewfile(path string, st Stray) error {
 	}
 	if len(data) > 0 && !bytes.HasSuffix(data, []byte("\n")) {
 		data = append(data, '\n')
+	}
+	if st.Desc != "" {
+		data = append(data, "# "+st.Desc+"\n"...)
 	}
 	data = append(data, fmt.Sprintf("%s %q\n", st.Kind, st.Name)...)
 	info, err := os.Stat(path)

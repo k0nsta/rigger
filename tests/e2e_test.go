@@ -265,3 +265,27 @@ esac
 	out, err = cmd.CombinedOutput()
 	require.Error(t, err, string(out))
 }
+
+func TestSyncRefusesFeatureBranch(t *testing.T) {
+	remote := remoteFromExample(t)
+	m := newMachine(t)
+	repoDir := filepath.Join(m.home, "setup")
+	m.rigger(true, "init", remote, "--dir", repoDir, "--no-run")
+	m.rigger(true, "apply", "--yes", "--only", "git", "--host", "a")
+
+	// another session switched the live checkout to its feature branch and left work in it
+	gitIn(t, repoDir, "switch", "-q", "-c", "feat/plugin")
+	testutil.WriteFile(t, filepath.Join(repoDir, "zsh", ".zshrc"), "# half done\n")
+	before := gitIn(t, repoDir, "rev-parse", "HEAD")
+
+	out := m.rigger(false, "sync", "--yes", "--host", "a")
+	assert.Contains(t, out, "setup is on branch feat/plugin, not main: your linked configs come from that branch, and sync would commit to it.")
+	assert.Contains(t, out, "switch back with `git -C ~/setup switch main`")
+	assert.Equal(t, before, gitIn(t, repoDir, "rev-parse", "HEAD"), "nothing committed")
+
+	out = m.rigger(false, "status", "--host", "a")
+	assert.Contains(t, out, "warning: setup is on branch feat/plugin")
+
+	gitIn(t, repoDir, "switch", "-q", "main")
+	assert.Contains(t, m.rigger(true, "sync", "--yes", "--host", "a"), "in sync")
+}
