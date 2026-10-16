@@ -3,6 +3,9 @@
 Set up a new Mac or Linux box from your own setup repo, pick what each machine gets in a TUI,
 and keep every machine in sync.
 
+A Mac-only or Linux-only setup is complete on its own: macOS installs with Homebrew, Debian/Ubuntu
+with apt, and one repo can also serve both.
+
 ![rigger init on a new Mac: name the machine, pick a profile, untick a package, review, run](docs/demo/rigger.gif)
 
 ## Why rigger

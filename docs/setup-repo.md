@@ -77,6 +77,13 @@ terminal for `apply`/`sync`), checks it, and answers later sudo calls from memor
 
 Backups go to `~/.local/state/rigger/backups/<timestamp>/`. Nothing is ever deleted; unpicking a component removes nothing.
 
+### Platforms
+
+A repo can target macOS only, Linux (Debian/Ubuntu) only, or both. For a single platform, leave
+`platforms` out and use only its actions (`brewfile` on macOS, `apt` on Linux), so a Linux-only repo
+needs no Homebrew. For both, mark each platform's components, as [`example/`](../example) does:
+`laptop` is the Mac profile, `server` the Debian one.
+
 ### requires
 
 Picking a component pulls in what it requires ("needed by …" in the TUI). A requirement that does not run on this platform is dropped, so `requires: [core-cli, linux-core]` works on macOS and Linux.
