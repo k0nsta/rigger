@@ -8,6 +8,7 @@ import (
 
 	"github.com/k0nsta/rigger/internal/action"
 	"github.com/k0nsta/rigger/internal/engine"
+	"github.com/k0nsta/rigger/internal/manifest"
 	"github.com/k0nsta/rigger/internal/sh"
 )
 
@@ -208,6 +209,13 @@ func (m *Model) viewReview(b *strings.Builder) {
 	if pending == 0 {
 		b.WriteString(okStyle.Render("Everything picked is already in place.") + "\n")
 	}
+	if gone := m.unpicked(); len(gone) > 0 {
+		b.WriteString("\n" + headerStyle.Render("Unpicked on this machine") + "\n")
+		b.WriteString(dimStyle.Render("rigger stops applying these but never uninstalls: remove what you no longer want by hand.") + "\n")
+		for _, c := range gone {
+			fmt.Fprintf(b, "  %-20s %s\n", truncate(c.Name(), 20), dimStyle.Render(leftBehind(c)))
+		}
+	}
 
 	if len(m.decisions) > 0 {
 		b.WriteString("\n" + headerStyle.Render("Decide") + "\n")
@@ -226,7 +234,7 @@ func (m *Model) viewReview(b *strings.Builder) {
 	if engine.NeedsSudo(m.plan) {
 		b.WriteString(dimStyle.Render("Some steps need sudo; rigger asks for the password once, when the first one does.") + "\n")
 	}
-	help := "enter apply · esc back · ctrl+c quit"
+	help := "enter apply and save picks · esc back · ctrl+c quit"
 	if len(m.decisions) > 0 {
 		help = "space change decision · " + help
 	}
@@ -370,4 +378,26 @@ func truncate(s string, n int) string {
 	}
 	r := []rune(s)
 	return string(r[:n-1]) + "…"
+}
+
+// leftBehind says what an unpicked component left on the machine.
+func leftBehind(c *manifest.Component) string {
+	var paths []string
+	for _, l := range c.Links {
+		paths = append(paths, l.Dst)
+	}
+	for _, sd := range c.Seeds {
+		paths = append(paths, sd.Dst)
+	}
+	var parts []string
+	if len(paths) > 0 {
+		parts = append(parts, strings.Join(paths, ", "))
+	}
+	if c.Brewfile != "" || len(c.Apt) > 0 {
+		parts = append(parts, "its packages stay installed")
+	}
+	if len(parts) == 0 {
+		return "nothing to remove"
+	}
+	return strings.Join(parts, "; ")
 }

@@ -2,10 +2,12 @@ package syncer
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -153,3 +155,48 @@ func TestAddToBrewfile(t *testing.T) {
 	assert.Equal(t, "brew \"git\"\ncask \"steam\"\n# User-friendly cURL replacement\nbrew \"httpie\"\n", testutil.ReadFile(t, path))
 	assert.Equal(t, "User-friendly cURL replacement", action.ParseBrewfile([]byte(testutil.ReadFile(t, path)))[2].Comment, "the TUI shows it")
 }
+
+// recorder runs commands for real and keeps them for assertions.
+type recorder struct {
+	Runner
+	cmds []sh.Cmd
+}
+
+func (r *recorder) Run(ctx context.Context, c sh.Cmd) (sh.Result, error) {
+	r.cmds = append(r.cmds, c)
+	return r.Runner.Run(ctx, c)
+}
+
+// noSSHCommand clears an inherited GIT_SSH_COMMAND for the test (sandboxes set one).
+func noSSHCommand(t *testing.T) {
+	t.Helper()
+	t.Setenv("GIT_SSH_COMMAND", "")
+	require.NoError(t, os.Unsetenv("GIT_SSH_COMMAND"))
+}
+
+func TestPullRunsSSHInBatchMode(t *testing.T) {
+	noSSHCommand(t)
+	a, _ := machines(t)
+	rec := &recorder{Runner: a.Runner}
+	a.Runner = rec
+	require.NoError(t, a.Pull(context.Background()))
+	pull := rec.cmds[len(rec.cmds)-1]
+	assert.Contains(t, pull.Args, "pull")
+	assert.Equal(t, []string{"GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=15"}, pull.Env)
+}
+
+func TestPullWithoutAnswerTimesOut(t *testing.T) {
+	noSSHCommand(t)
+	a, _ := machines(t)
+	// a remote whose ssh never answers; the configured sshCommand is kept, so it is what runs
+	git(t, a.Repo, "remote", "set-url", "origin", "ssh://git@example.invalid/x.git")
+	git(t, a.Repo, "config", "core.sshCommand", "sleep 30 #")
+	a.NetTimeout = 300 * time.Millisecond
+
+	start := time.Now()
+	err := a.Pull(context.Background())
+	require.ErrorIs(t, err, ErrNoAnswer)
+	assert.Contains(t, err.Error(), "approve the SSH key")
+	assert.Less(t, time.Since(start), 10*time.Second, "the ssh grandchild is killed too")
+}
+

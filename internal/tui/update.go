@@ -378,6 +378,29 @@ func (m *Model) toggleDecision(d decision) {
 	}
 }
 
+// unpicked lists components the saved selection had that this run no longer picks (neither
+// picked nor pulled in as a requirement).
+func (m *Model) unpicked() []*manifest.Component {
+	if m.cfg.Current == nil {
+		return nil
+	}
+	inPlan := map[string]bool{}
+	for _, cs := range m.plan {
+		inPlan[cs.Component.ID] = true
+	}
+	saved := map[string]bool{}
+	for _, id := range m.cfg.Current.Picked {
+		saved[id] = true
+	}
+	var gone []*manifest.Component
+	for _, c := range m.cfg.Components {
+		if saved[c.ID] && !inPlan[c.ID] {
+			gone = append(gone, c)
+		}
+	}
+	return gone
+}
+
 // pending counts components that will change.
 func (m *Model) pending() int {
 	n := 0

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 // Cmd is one command. Either Script (run with `sh -c`) or Path+Args.
@@ -113,6 +114,10 @@ func (e *Exec) Run(ctx context.Context, c Cmd) (Result, error) {
 	// own session, no controlling terminal: a child that wants a password cannot grab the TTY
 	// the TUI owns; sudo uses SUDO_ASKPASS instead (see internal/askpass)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// on cancel kill the whole session: a grandchild (ssh under git) would otherwise keep the
+	// output pipes open and Run would wait for it
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Stdin = c.Stdin
 	if cmd.Stdin == nil {
 		cmd.Stdin = bytes.NewReader(nil)

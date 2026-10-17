@@ -446,3 +446,26 @@ func TestProfileScreenDoesNotOfferTheSavedProfileBare(t *testing.T) {
 	m.cfg.Current = nil
 	assert.Equal(t, []string{"laptop", "minimal"}, m.profileOptions())
 }
+
+func TestReviewListsWhatWasUnpicked(t *testing.T) {
+	s := session(t)
+	testutil.WriteFile(t, filepath.Join(s.Repo, "hosts", "box.yaml"), "profile: minimal\nadd: [tool]\n")
+	s, err := app.Open(app.Options{Repo: s.Repo, Host: "box", Home: s.Home, ExtraEnv: []string{"PATH=/usr/bin:/bin"}})
+	require.NoError(t, err)
+	cur, err := s.Select("", nil)
+	require.NoError(t, err)
+	m := newModel(t, s)
+	m.cfg.Current = &cur
+	m.screen = scrProfile
+
+	press(t, m, "enter")
+	cursorOn(t, m, "zsh")
+	press(t, m, "space", "c")
+	require.Equal(t, scrReview, m.screen, view(m))
+	out := view(m)
+	assert.Contains(t, out, "Unpicked on this machine")
+	assert.Contains(t, out, "never uninstalls")
+	assert.Regexp(t, `zsh\s+\S*~/\.zshrc`, out)
+	assert.NotContains(t, out, "helper  ", "a requirement still pulled in is not listed")
+	assert.Contains(t, out, "enter apply and save picks")
+}
