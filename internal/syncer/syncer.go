@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/k0nsta/rigger/internal/action"
 	"github.com/k0nsta/rigger/internal/sh"
@@ -29,6 +30,36 @@ type Change struct {
 type Syncer struct {
 	Repo   string
 	Runner Runner
+	// NetTimeout bounds a pull or push (default 90s): long enough to approve an SSH key in an
+	// agent such as 1Password, short enough that a dead network does not hang sync.
+	NetTimeout time.Duration
+}
+
+// ErrNoAnswer means a pull or push got no answer from the remote in time.
+var ErrNoAnswer = errors.New("no answer from the remote")
+
+// netGit runs a git command that talks to the remote. ssh runs in batch mode, so a passphrase
+// or host-key question fails at once instead of waiting for a terminal rigger does not have;
+// a configured core.sshCommand or GIT_SSH_COMMAND is left alone.
+func (s *Syncer) netGit(ctx context.Context, args ...string) (sh.Result, error) {
+	timeout := s.NetTimeout
+	if timeout == 0 {
+		timeout = 90 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	c := sh.Cmd{Path: "git", Args: append([]string{"-C", s.Repo}, args...)}
+	if os.Getenv("GIT_SSH_COMMAND") == "" {
+		if res, err := s.git(ctx, "config", "--get", "core.sshCommand"); err == nil && strings.TrimSpace(res.Output) == "" {
+			c.Env = []string{"GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=15"}
+		}
+	}
+	res, err := s.Runner.Run(ctx, c)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return res, fmt.Errorf("git %s: %w after %s: check the network, or approve the SSH key if an agent (1Password, Touch ID) is asking; `git -C %s %s` shows what it waits for",
+			args[0], ErrNoAnswer, timeout, s.Repo, args[0])
+	}
+	return res, err
 }
 
 func (s *Syncer) git(ctx context.Context, args ...string) (sh.Result, error) {
@@ -152,7 +183,7 @@ var ErrConflict = errors.New("pull hit a conflict; aborted, nothing changed")
 // Pull rebases local commits onto the remote; a conflict is aborted so live linked configs
 // never see conflict markers.
 func (s *Syncer) Pull(ctx context.Context) error {
-	res, err := s.git(ctx, "pull", "--rebase", "--no-autostash")
+	res, err := s.netGit(ctx, "pull", "--rebase", "--no-autostash")
 	if err != nil {
 		return err
 	}
@@ -172,8 +203,14 @@ func (s *Syncer) Pull(ctx context.Context) error {
 
 // Push publishes local commits.
 func (s *Syncer) Push(ctx context.Context) error {
-	_, err := s.mustGit(ctx, "push", "-q")
-	return err
+	res, err := s.netGit(ctx, "push", "-q")
+	if err != nil {
+		return err
+	}
+	if res.Code != 0 {
+		return fmt.Errorf("git push failed: %s", strings.TrimSpace(res.Output))
+	}
+	return nil
 }
 
 // Ahead counts local commits not on the upstream (0 when there is no upstream).

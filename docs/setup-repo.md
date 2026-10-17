@@ -75,7 +75,7 @@ rigger asks for the password itself, once per run (a masked prompt in the TUI, o
 terminal for `apply`/`sync`), checks it, and answers later sudo calls from memory. Use plain
 `sudo` in `cmds`: `sudo -n` refuses to ask and fails.
 
-Backups go to `~/.local/state/rigger/backups/<timestamp>/`. Nothing is ever deleted; unpicking a component removes nothing.
+Backups go to `~/.local/state/rigger/backups/<timestamp>/`. Nothing is ever deleted; unpicking a component removes nothing (the TUI review lists what you unpicked and the paths it left).
 
 ### Platforms
 
@@ -134,5 +134,7 @@ Then `rigger sync` shares it.
 ## Sync
 
 `rigger sync`: export layouts → offer stray Homebrew packages (add to a Brewfile or ignore) → you pick changed files → credential gate (built-in patterns, plus `gitleaks` when installed) → commit `sync(<host>): …` → `git pull --rebase` (a conflict is aborted; live configs never get conflict markers) → apply what other machines added (each listed with why it is picked: its profile, `hosts/<name>.yaml`, or `needed by`; `-n` drops one from this host for good by writing `remove`) → push.
+
+ssh runs in batch mode and a pull or push gets 90 s: a passphrase, host-key question, unapproved agent key or dead network fails with the reason instead of hanging.
 
 The checkout is live: links point into it, so it stays on the default branch (`origin/HEAD`, else `main`/`master`). Off it, `sync` refuses and `status`, `apply` and the TUI warn. Do feature work in a `git worktree`.
