@@ -178,7 +178,24 @@ func lastLines(out string, n int) string {
 }
 
 // ErrConflict means pull --rebase hit a conflict and was aborted.
-var ErrConflict = errors.New("pull hit a conflict; aborted, nothing changed")
+var ErrConflict = errors.New("pull hit a conflict")
+
+// ConflictError is a pull --rebase that hit a conflict in Files and was aborted: local commits
+// are kept, the checkout is as it was before the pull.
+type ConflictError struct {
+	Files []string
+}
+
+func (e *ConflictError) Error() string {
+	in := ""
+	if len(e.Files) > 0 {
+		in = " in " + strings.Join(e.Files, ", ")
+	}
+	return fmt.Sprintf("pull hit a conflict%s; rigger aborted the rebase: your commits stay local, nothing else changed", in)
+}
+
+// Unwrap lets errors.Is match ErrConflict.
+func (e *ConflictError) Unwrap() error { return ErrConflict }
 
 // Pull rebases local commits onto the remote; a conflict is aborted so live linked configs
 // never see conflict markers.
@@ -190,13 +207,16 @@ func (s *Syncer) Pull(ctx context.Context) error {
 	if res.Code == 0 {
 		return nil
 	}
-	if _, err := os.Stat(filepath.Join(s.Repo, ".git", "rebase-merge")); err == nil {
+	for _, dir := range []string{"rebase-merge", "rebase-apply"} {
+		if _, err := os.Stat(filepath.Join(s.Repo, ".git", dir)); err != nil {
+			continue
+		}
+		var files []string
+		if out, err := s.mustGit(ctx, "diff", "--name-only", "--diff-filter=U"); err == nil {
+			files = sh.Lines(out)
+		}
 		_, _ = s.git(ctx, "rebase", "--abort")
-		return fmt.Errorf("%w: %s", ErrConflict, lastLines(res.Output, 4))
-	}
-	if _, err := os.Stat(filepath.Join(s.Repo, ".git", "rebase-apply")); err == nil {
-		_, _ = s.git(ctx, "rebase", "--abort")
-		return fmt.Errorf("%w: %s", ErrConflict, lastLines(res.Output, 4))
+		return &ConflictError{Files: files}
 	}
 	return fmt.Errorf("git pull failed: %s", lastLines(res.Output, 4))
 }

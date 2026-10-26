@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/k0nsta/rigger/internal/engine"
 	"github.com/k0nsta/rigger/internal/manifest"
 	"github.com/k0nsta/rigger/internal/sh"
+	"github.com/k0nsta/rigger/internal/state"
 )
 
 func stdinIsTerminal() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
@@ -36,7 +38,7 @@ func (c *cli) status(ctx context.Context, args []string) error {
 	c.warnHead(ctx, s)
 	printStatuses(c.out, statuses, res)
 	if missing := engine.MissingSecrets(statuses, s.Secrets); len(missing) > 0 {
-		fmt.Fprintf(c.out, "\nmissing secrets (add to ~/.config/rigger/secrets.env): %s\n", strings.Join(missing, ", "))
+		fmt.Fprint(c.out, missingSecrets(s.Home, missing, ""))
 	}
 	for _, cs := range statuses {
 		if !cs.Settled() && !cs.OfferOnly() {
@@ -67,4 +69,14 @@ func orNone(s string) string {
 		return "(none)"
 	}
 	return s
+}
+
+// missingSecrets says which secrets are not set and where to put them; note follows the list.
+func missingSecrets(home string, keys []string, note string) string {
+	if note != "" {
+		note = " (" + note + ")"
+	}
+	file := sh.Tilde(home, filepath.Join(state.ConfigDir(home), "secrets.env"))
+	return fmt.Sprintf("\nmissing secrets%s: %s\n  add each to %s as KEY=value, or KEY=op://vault/item/field for 1Password\n",
+		note, strings.Join(keys, ", "), file)
 }

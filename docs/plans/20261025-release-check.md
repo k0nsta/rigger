@@ -32,12 +32,12 @@
 ## Implementation Steps
 
 ### Task 1: Fix findings
-- [ ] F4: in `sync`, a link that became a real file with other content is not relinked silently: interactive asks adopt / keep repo (backup); `--yes` leaves it and warns with `rigger adopt <path>`; a relink prints the backup path
-- [ ] F5: conflict message says rigger aborted and nothing changed, names the conflicting files, and how to resolve (`git -C <repo> pull --rebase`, fix, `git rebase --continue`, then `rigger sync`)
-- [ ] F1: `init` fails when the checkout has no `manifest.yaml`
-- [ ] F6: missing-secret message names `~/.config/rigger/secrets.env`
-- [ ] F2, F3 if cheap
-- [ ] tests for each; `make check` passes
+- [x] F4: in `sync`, a link that became a real file with other content is not relinked silently: interactive asks adopt / keep repo (backup); `--yes` leaves it and warns with `rigger adopt <path>`; a relink prints the backup path
+- [x] F5: conflict message says rigger aborted and nothing changed, names the conflicting files, and how to resolve (`git -C <repo> pull --rebase`, fix, `git rebase --continue`, then `rigger sync`)
+- [x] F1: `init` fails when the checkout has no `manifest.yaml`
+- [x] F6: missing-secret message names `~/.config/rigger/secrets.env`
+- [x] F2, F3 if cheap (F2: `apt-get -qq -o Dpkg::Use-Pty=0`; F3: `log:` path with `~`)
+- [x] tests for each; `make check` passes
 
 ### Task 2: macOS checks (on the Mac)
 Build first: `git pull && make build` in the rigger repo; use `bin/rigger`.

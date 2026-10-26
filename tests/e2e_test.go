@@ -289,3 +289,28 @@ func TestSyncRefusesFeatureBranch(t *testing.T) {
 	gitIn(t, repoDir, "switch", "-q", "main")
 	assert.Contains(t, m.rigger(true, "sync", "--yes", "--host", "a"), "in sync")
 }
+
+func TestSyncLeavesALinkReplacedByARealFile(t *testing.T) {
+	remote := remoteFromExample(t)
+	m := newMachine(t)
+	repoDir := filepath.Join(m.home, "setup")
+	m.rigger(true, "init", remote, "--dir", repoDir, "--no-run")
+	m.rigger(true, "apply", "--yes", "--only", "git", "--host", "a")
+
+	// sed -i or an editor's atomic save replaces the link with a real file
+	live := filepath.Join(m.home, ".gitconfig")
+	require.NoError(t, os.Remove(live))
+	testutil.WriteFile(t, live, "[user]\n  name = edited in place\n")
+
+	out := m.rigger(true, "sync", "--yes", "--host", "a")
+	assert.Contains(t, out, "warning: ~/.gitconfig is a real file now, with other content than the repo's; left as it is.")
+	assert.Contains(t, out, "rigger adopt ~/.gitconfig")
+	assert.Contains(t, out, "left ~/.gitconfig as it is")
+	assert.Equal(t, "[user]\n  name = edited in place\n", testutil.ReadFile(t, live), "the edit is not moved to a backup")
+	assert.NoDirExists(t, filepath.Join(m.home, ".local", "state", "rigger", "backups"))
+
+	// adopting it takes the edit into the repo and links it again
+	m.rigger(true, "adopt", "~/.gitconfig", "--host", "a")
+	assert.Equal(t, filepath.Join(repoDir, "git", ".gitconfig"), testutil.Readlink(t, live))
+	assert.Contains(t, testutil.ReadFile(t, filepath.Join(repoDir, "git", ".gitconfig")), "edited in place")
+}

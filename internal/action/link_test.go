@@ -101,7 +101,9 @@ func TestLinkApplyRelinkSkipsBackup(t *testing.T) {
 	l := NewLink(env, manifest.Link{Src: "zsh/.zshrc", Dst: "~/.zshrc"})
 	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "gone", "zsh", ".zshrc"), l.Dst))
 
-	require.NoError(t, l.Apply(env, KeepRepo))
+	backup, err := l.Apply(env, KeepRepo)
+	require.NoError(t, err)
+	assert.Empty(t, backup)
 	assert.Equal(t, l.Src, testutil.Readlink(t, l.Dst))
 	assert.NoDirExists(t, env.BackupRoot)
 }
@@ -111,23 +113,27 @@ func TestLinkApplyKeepRepoBacksUp(t *testing.T) {
 	l := NewLink(env, manifest.Link{Src: "git/.gitconfig", Dst: "~/.config/git/config"})
 	testutil.WriteFile(t, l.Dst, "live")
 
-	require.NoError(t, l.Apply(env, KeepRepo))
+	backup, err := l.Apply(env, KeepRepo)
+	require.NoError(t, err)
 	assert.Equal(t, l.Src, testutil.Readlink(t, l.Dst))
 	assert.Equal(t, "repo", testutil.ReadFile(t, l.Src))
-	backup := filepath.Join(env.BackupRoot, "20261008-010203", ".config", "git", "config")
+	assert.Equal(t, filepath.Join(env.BackupRoot, "20261008-010203", ".config", "git", "config"), backup)
 	assert.Equal(t, "live", testutil.ReadFile(t, backup))
 
 	// rerun is a no-op
-	require.NoError(t, l.Apply(env, KeepRepo))
+	backup, err = l.Apply(env, KeepRepo)
+	require.NoError(t, err)
+	assert.Empty(t, backup)
 	assert.Equal(t, l.Src, testutil.Readlink(t, l.Dst))
 }
 
 func TestLinkApplyMissingCreatesParents(t *testing.T) {
 	env := testEnv(t, map[string]string{"tmux/tmux.conf": "x"})
 	l := NewLink(env, manifest.Link{Src: "tmux/tmux.conf", Dst: "~/.config/tmux/tmux.conf"})
-	require.NoError(t, l.Apply(env, KeepRepo))
+	_, err := l.Apply(env, KeepRepo)
+	require.NoError(t, err)
 	assert.Equal(t, l.Src, testutil.Readlink(t, l.Dst))
-	_, err := os.Stat(env.BackupRoot)
+	_, err = os.Stat(env.BackupRoot)
 	assert.True(t, os.IsNotExist(err), "nothing backed up")
 }
 
@@ -136,7 +142,8 @@ func TestLinkApplyAdoptLive(t *testing.T) {
 	l := NewLink(env, manifest.Link{Src: "zsh/.zshrc", Dst: "~/.zshrc"})
 	testutil.WriteFile(t, l.Dst, "live wins")
 
-	require.NoError(t, l.Apply(env, AdoptLive))
+	_, err := l.Apply(env, AdoptLive)
+	require.NoError(t, err)
 	assert.Equal(t, "live wins", testutil.ReadFile(t, l.Src))
 	assert.Equal(t, l.Src, testutil.Readlink(t, l.Dst))
 }
@@ -146,7 +153,7 @@ func TestLinkApplyAdoptRefusesDirectories(t *testing.T) {
 	l := NewLink(env, manifest.Link{Src: "nvim", Dst: "~/.config/nvim"})
 	testutil.WriteFile(t, filepath.Join(l.Dst, "init.lua"), "live")
 
-	err := l.Apply(env, AdoptLive)
+	_, err := l.Apply(env, AdoptLive)
 	require.ErrorContains(t, err, "only real files that differ can be adopted")
 	assert.Equal(t, "repo", testutil.ReadFile(t, filepath.Join(l.Src, "init.lua")))
 }

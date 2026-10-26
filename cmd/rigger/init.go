@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
 	"golang.org/x/term"
 
 	"github.com/k0nsta/rigger/internal/app"
+	"github.com/k0nsta/rigger/internal/manifest"
 	"github.com/k0nsta/rigger/internal/repo"
 	"github.com/k0nsta/rigger/internal/sh"
 	"github.com/k0nsta/rigger/internal/state"
@@ -51,12 +53,23 @@ func (c *cli) init(ctx context.Context, args []string) error {
 		target = d
 	}
 
+	_, statErr := os.Stat(filepath.Join(target, ".git"))
+	fresh := statErr != nil // this run clones into target, so a refusal below may remove it
 	fmt.Fprintf(c.out, "cloning %s into %s\n", url, sh.Tilde(home, target))
 	if err := repo.Clone(ctx, e, url, target, c.tokenPrompt, func(l string) { fmt.Fprintln(c.out, "  "+sh.Tilde(home, l)) }); err != nil {
 		return err
 	}
 	if switched, err := repo.UseSSHOrigin(ctx, e, target); err == nil && switched {
 		fmt.Fprintln(c.out, "origin switched to SSH")
+	}
+	// an empty checkout (the remote's HEAD names a branch that does not exist) clones fine
+	if _, err := os.Stat(filepath.Join(target, manifest.FileName)); err != nil {
+		what := "the clone is left there"
+		if fresh && os.RemoveAll(target) == nil {
+			what = "the clone was removed"
+		}
+		return fmt.Errorf("%s has no %s (%s): it is not a setup repo, or the remote's default branch "+
+			"is missing or empty; fix the remote's HEAD and run init again", sh.Tilde(home, target), manifest.FileName, what)
 	}
 
 	localPath := state.LocalPath(home)

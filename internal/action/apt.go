@@ -63,8 +63,9 @@ func AptInstall(ctx context.Context, r Runner, packages []string, onLine func(st
 	}
 	env := []string{"DEBIAN_FRONTEND=noninteractive"}
 	for _, step := range [][]string{
-		{"apt-get", "update", "-q"},
-		append([]string{"apt-get", "install", "-y", "-q"}, packages...),
+		// -qq and no dpkg pty: errors and one line per package, not progress bars
+		{"apt-get", "update", "-qq"},
+		append([]string{"apt-get", "install", "-y", "-qq", "-o", "Dpkg::Use-Pty=0"}, packages...),
 	} {
 		c := sh.Cmd{Path: "sudo", Args: step, Env: env, OnLine: onLine}
 		if AsRoot() {

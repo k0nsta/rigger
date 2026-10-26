@@ -45,7 +45,7 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 	printStatuses(c.out, statuses, res)
 
 	if missing := engine.MissingSecrets(statuses, s.Secrets); len(missing) > 0 {
-		fmt.Fprintf(c.out, "\nmissing secrets (components needing them are skipped): %s\n", strings.Join(missing, ", "))
+		fmt.Fprint(c.out, missingSecrets(s.Home, missing, "components needing them are skipped"))
 	}
 	pending := 0
 	for _, cs := range statuses {
@@ -72,7 +72,7 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 		return err
 	}
 	defer func() {
-		fmt.Fprintf(c.out, "log: %s\n", logf.Name())
+		fmt.Fprintf(c.out, "log: %s\n", sh.Tilde(s.Home, logf.Name()))
 		_ = logf.Close()
 	}()
 	printStatuses(logf, statuses, res)

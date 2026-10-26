@@ -12,7 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/k0nsta/rigger/internal/action"
 	"github.com/k0nsta/rigger/internal/app"
+	"github.com/k0nsta/rigger/internal/engine"
 	"github.com/k0nsta/rigger/internal/manifest"
 	"github.com/k0nsta/rigger/internal/testutil"
 )
@@ -163,4 +165,43 @@ components:
 	assert.Equal(t, filepath.Join(repo, "git", ".gitconfig"), testutil.Readlink(t, filepath.Join(c.home, ".gitconfig")))
 	assert.NoFileExists(t, filepath.Join(c.home, ".zshrc"))
 	assert.Equal(t, "profile: laptop\nremove:\n    - zsh\n", gitT(t, remote, "show", "main:hosts/box.yaml"), "the drop is committed and pushed")
+}
+
+func TestConflictFix(t *testing.T) {
+	fix := conflictFix("~/setup")
+	assert.Contains(t, fix, "git -C ~/setup pull --rebase")
+	assert.Contains(t, fix, "git -C ~/setup rebase --continue")
+	assert.True(t, strings.HasSuffix(fix, "rigger sync"))
+}
+
+func TestDecideReplacedLinks(t *testing.T) {
+	replaced := []engine.ComponentStatus{{Component: &manifest.Component{ID: "zsh"}, Actions: []engine.ActionStatus{
+		{Kind: engine.KindLink, Target: "~/.zshrc", Status: action.Differs},
+		{Kind: engine.KindLink, Target: "~/.gitconfig", Status: action.Missing},
+	}}}
+	key := "link:~/.zshrc"
+	tests := map[string]struct {
+		yes          bool
+		input        string
+		adopt, leave bool
+	}{
+		"yes leaves it":         {yes: true, leave: true},
+		"a adopts":              {input: "a\n", adopt: true},
+		"k keeps the repo file": {input: "x\nk\n"},
+		"enter leaves it":       {input: "\n", leave: true},
+		"closed input leaves":   {input: "", leave: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var out strings.Builder
+			c := &cli{out: &out}
+			d := c.decideReplacedLinks(bufio.NewReader(strings.NewReader(tt.input)), replaced, tt.yes, "/home/u")
+			assert.Equal(t, tt.adopt, d.Adopt[key])
+			assert.Equal(t, tt.leave, d.Leave[key])
+			assert.False(t, d.Leave["link:~/.gitconfig"], "a missing link is created as usual")
+			if tt.yes {
+				assert.Contains(t, out.String(), "rigger adopt ~/.zshrc")
+			}
+		})
+	}
 }

@@ -304,6 +304,8 @@ func NeedsSudo(statuses []ComponentStatus) bool {
 type Decisions struct {
 	// Adopt lists link keys whose live file is copied into the repo (default: keep repo).
 	Adopt map[string]bool
+	// Leave lists link keys that are not touched this run: the live file stays as it is.
+	Leave map[string]bool
 	// Overwrite lists seed keys whose live file is replaced (default for both-changed: keep).
 	Overwrite map[string]bool
 	// ImportFrom maps a layouts key to the host snapshot to import (default: no import).

@@ -88,6 +88,12 @@ func TestPullConflictAborts(t *testing.T) {
 	require.NoError(t, b.Commit(ctx, "b", []string{"zsh/.zshrc"}))
 	err := b.Pull(ctx)
 	require.ErrorIs(t, err, ErrConflict)
+	var conflict *ConflictError
+	require.ErrorAs(t, err, &conflict)
+	assert.Equal(t, []string{"zsh/.zshrc"}, conflict.Files)
+	assert.Contains(t, err.Error(), "in zsh/.zshrc; rigger aborted the rebase: your commits stay local")
+	assert.NotContains(t, err.Error(), "git rebase --skip", "git's own hints do not apply after the abort")
+	assert.Equal(t, 1, b.Ahead(ctx), "b's commit is kept")
 	assert.Equal(t, "b edit\n", testutil.ReadFile(t, filepath.Join(b.Repo, "zsh", ".zshrc")), "no conflict markers left")
 	assert.NoDirExists(t, filepath.Join(b.Repo, ".git", "rebase-merge"))
 }
