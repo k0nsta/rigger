@@ -291,14 +291,51 @@ func Strays(ctx context.Context, r Runner, brewfiles []action.Brew, ignore []str
 			}
 		}
 	}
+	withTaps(ctx, r, out)
 	sort.Slice(out, func(i, j int) bool { return out[i].Kind+out[i].Name < out[j].Kind+out[j].Name })
 	describe(ctx, r, out)
 	return out, nil
 }
 
-// describe fills Desc from `brew info`, and gives a cask from a third-party tap its full token
-// (`brew list --cask` prints only `goreleaser`, which no Brewfile on a fresh machine can install
-// without `goreleaser/tap/`). Failures leave both as they are.
+// withTaps gives a cask from a third-party tap its full token from the install receipt:
+// `brew list --cask` prints only `goreleaser`, which no Brewfile on a fresh machine can install
+// without `goreleaser/tap/`. The receipt needs no tap trust, unlike `brew info`.
+func withTaps(ctx context.Context, r Runner, strays []Stray) {
+	var caskroom string
+	for i := range strays {
+		if strays[i].Kind != action.KindCask || strings.Contains(strays[i].Name, "/") {
+			continue
+		}
+		if caskroom == "" {
+			res, err := r.Run(ctx, sh.Cmd{Path: "brew", Args: []string{"--caskroom"}})
+			if err != nil || res.Code != 0 {
+				return
+			}
+			lines := sh.Lines(res.Output)
+			if len(lines) == 0 {
+				return
+			}
+			caskroom = lines[len(lines)-1]
+		}
+		data, err := os.ReadFile(filepath.Join(caskroom, strays[i].Name, ".metadata", "INSTALL_RECEIPT.json"))
+		if err != nil {
+			continue
+		}
+		var receipt struct {
+			Source struct {
+				Tap string `json:"tap"`
+			} `json:"source"`
+		}
+		if json.Unmarshal(data, &receipt) != nil {
+			continue
+		}
+		if tap := receipt.Source.Tap; tap != "" && tap != "homebrew/cask" && packageName.MatchString(tap) {
+			strays[i].Name = tap + "/" + strays[i].Name
+		}
+	}
+}
+
+// describe fills Desc from `brew info`; descriptions are a nicety, so failures leave them empty.
 func describe(ctx context.Context, r Runner, strays []Stray) {
 	for _, q := range []struct{ kind, flag string }{{action.KindBrew, "--formula"}, {action.KindCask, "--cask"}} {
 		var names []string
@@ -329,21 +366,16 @@ func describe(ctx context.Context, r Runner, strays []Stray) {
 		if json.Unmarshal([]byte(res.Output), &info) != nil {
 			continue
 		}
-		descs, full := map[string]string{}, map[string]string{}
+		descs := map[string]string{}
 		for _, f := range info.Formulae {
 			descs[f.Name], descs[f.FullName] = f.Desc, f.Desc
 		}
 		for _, c := range info.Casks {
 			descs[c.Token], descs[c.FullToken] = c.Desc, c.Desc
-			full[c.Token] = c.FullToken
 		}
 		for i := range strays {
-			if strays[i].Kind != q.kind {
-				continue
-			}
-			strays[i].Desc = descs[strays[i].Name]
-			if f := full[strays[i].Name]; f != "" {
-				strays[i].Name = f
+			if strays[i].Kind == q.kind {
+				strays[i].Desc = descs[strays[i].Name]
 			}
 		}
 	}
