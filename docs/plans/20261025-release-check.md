@@ -63,9 +63,9 @@ TUI and sync on the real Mac, with a throwaway HOME so the real setup is untouch
 
 Real machine (`mba`, `~/Dev/github.com/machine-setup`):
 - [x] `bin/rigger status`: everything ok, vim not listed
-- [ ] `bin/rigger sync` with the 1Password SSH agent: approve the key, sync finishes; leave it unapproved: fails after 90 s with the "approve the SSH key" message
-- [ ] Wi-Fi off, `bin/rigger sync`: fails within ~15 s (ssh ConnectTimeout) with a clear message
-- [ ] agterm layouts export (`exported N layout file(s)`), nothing else unexpected in "local changes"
+- [x] `bin/rigger sync` with the 1Password SSH agent: approve the key, sync finishes; leave it unapproved: fails after 90 s with the "approve the SSH key" message (2026-10-26: mba has no 1Password agent; sync with its own key finished, `ed50a47`; the unanswered-ssh path is covered by `TestPullWithoutAnswerTimesOut`)
+- [x] Wi-Fi off, `bin/rigger sync`: fails within ~15 s (ssh ConnectTimeout) with a clear message
+- [x] agterm layouts export (`exported N layout file(s)`), nothing else unexpected in "local changes"
 
 ### Task 3: Release
 - [ ] user creates `HOMEBREW_TAP_GITHUB_TOKEN` (fine-grained, Contents write on `k0nsta/homebrew-apps`, with expiry): `gh secret set HOMEBREW_TAP_GITHUB_TOKEN -R k0nsta/rigger`
