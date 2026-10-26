@@ -98,6 +98,29 @@ func TestPullConflictAborts(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(b.Repo, ".git", "rebase-merge"))
 }
 
+func TestPullStopsOnUncommittedChanges(t *testing.T) {
+	ctx := context.Background()
+	a, b := machines(t)
+	testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "a edit\n")
+	require.NoError(t, a.Commit(ctx, "a", []string{"zsh/.zshrc"}))
+	require.NoError(t, a.Push(ctx))
+
+	// an untracked file does not stop the pull
+	testutil.WriteFile(t, filepath.Join(b.Repo, "scratch.txt"), "new\n")
+	require.NoError(t, b.Pull(ctx))
+
+	// a tracked file left out of the sync commit does
+	testutil.WriteFile(t, filepath.Join(b.Repo, "zsh", ".zshrc"), "b edit, not committed\n")
+	err := b.Pull(ctx)
+	require.ErrorIs(t, err, ErrUncommitted)
+	var uncommitted *UncommittedError
+	require.ErrorAs(t, err, &uncommitted)
+	assert.Equal(t, []string{"zsh/.zshrc"}, uncommitted.Files)
+	assert.Contains(t, err.Error(), "1 local change(s) were not committed (zsh/.zshrc)")
+	assert.NotContains(t, err.Error(), "cannot pull with rebase", "not git's own message")
+	assert.Equal(t, "b edit, not committed\n", testutil.ReadFile(t, filepath.Join(b.Repo, "zsh", ".zshrc")), "the edit is untouched")
+}
+
 func TestGateRefusesCredentials(t *testing.T) {
 	ctx := context.Background()
 	// fake tokens, split so secret scanners do not flag the source

@@ -130,7 +130,10 @@ func gitT(t *testing.T, dir string, args ...string) string {
 	return string(out)
 }
 
-func TestSyncAppliesPickedAndDropsFromHost(t *testing.T) {
+// syncRepo publishes a links-only setup repo (laptop: zsh, git; host box) as a bare remote and
+// returns a clone of it and the remote.
+func syncRepo(t *testing.T) (repo, remote string) {
+	t.Helper()
 	// links only, so the pending list is the same on every machine
 	seed := testutil.Tree(t, map[string]string{
 		"manifest.yaml": `version: 1
@@ -147,13 +150,17 @@ components:
 	gitT(t, seed, "init", "-q", "-b", "main")
 	gitT(t, seed, "add", ".")
 	gitT(t, seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
-	remote := filepath.Join(t.TempDir(), "setup.git")
+	remote = filepath.Join(t.TempDir(), "setup.git")
 	gitT(t, "", "clone", "-q", "--bare", seed, remote)
-	repo := filepath.Join(t.TempDir(), "setup")
+	repo = filepath.Join(t.TempDir(), "setup")
 	gitT(t, "", "clone", "-q", remote, repo)
 	gitT(t, repo, "config", "user.name", "box")
 	gitT(t, repo, "config", "user.email", "box@example.com")
+	return repo, remote
+}
 
+func TestSyncAppliesPickedAndDropsFromHost(t *testing.T) {
+	repo, remote := syncRepo(t)
 	c, out := newCLI(t, true)
 	// the laptop profile brings [1] zsh and [2] git here
 	c.in = strings.NewReader("2 -1\n")
@@ -165,6 +172,16 @@ components:
 	assert.Equal(t, filepath.Join(repo, "git", ".gitconfig"), testutil.Readlink(t, filepath.Join(c.home, ".gitconfig")))
 	assert.NoFileExists(t, filepath.Join(c.home, ".zshrc"))
 	assert.Equal(t, "profile: laptop\nremove:\n    - zsh\n", gitT(t, remote, "show", "main:hosts/box.yaml"), "the drop is committed and pushed")
+}
+
+func TestSyncSaysWhatToDoWithUncommittedChanges(t *testing.T) {
+	repo, _ := syncRepo(t)
+	testutil.WriteFile(t, filepath.Join(repo, "zsh", ".zshrc"), "# zsh, edited\n")
+	c, _ := newCLI(t, true)
+	c.in = strings.NewReader("none\n")
+	err := c.run(context.Background(), []string{"sync", "--repo", repo, "--host", "box"})
+	require.ErrorContains(t, err, "1 local change(s) were not committed (zsh/.zshrc): sync pulls with rebase, which needs them committed or stashed")
+	assert.Contains(t, err.Error(), "run rigger sync again and commit them, or set them aside: git -C "+repo+" stash, rigger sync, git -C "+repo+" stash pop")
 }
 
 func TestConflictFix(t *testing.T) {

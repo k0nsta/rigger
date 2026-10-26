@@ -26,7 +26,7 @@
 | F5 | medium | A pull conflict prints git's own hints (`git rebase --skip`), which no longer apply since rigger aborted, and no way to resolve it. |
 | F1 | low | `init` succeeds with an empty checkout when the remote's HEAD points to a missing branch; it should fail when `manifest.yaml` is missing. |
 | F7 | high | (found by the VM matrix, 2026-10-26) `sync` writes a stray cask from a third-party tap by its bare token (`cask "goreleaser"`, tap `goreleaser/tap`): a fresh Mac has no such cask, so the whole Brewfile fails. Fixed: the stray takes its tap from the cask's install receipt (`Caskroom/<token>/.metadata/INSTALL_RECEIPT.json`; `brew info` fails as a whole when one tap is untrusted, Homebrew 7); machine-setup's `brew/dev.Brewfile` line removed (the formula is listed). |
-| F12 | medium | (2026-10-26) "commit which?" answered `none` with local changes: the pull fails with git's "cannot pull with rebase: You have unstaged changes"; sync should say the changes must be committed or stashed first. |
+| F12 | medium | (2026-10-26) "commit which?" answered `none` with local changes: the pull fails with git's "cannot pull with rebase: You have unstaged changes"; sync should say the changes must be committed or stashed first. Fixed: sync stops before the pull, names the files and how to commit or stash them. |
 | F8 | cosmetic | (2026-10-26) the secret screen's hint is cut at the window edge, not wrapped. |
 | F9 | cosmetic | (2026-10-26) the finish screen counts components that were already ok as "done" (4 done after "3 component(s) will change"). |
 | F10 | cosmetic | (2026-10-26) a package unticked in the host file shows no install state when ticked again in the TUI. |
@@ -44,6 +44,7 @@
 - [x] F6: missing-secret message names `~/.config/rigger/secrets.env`
 - [x] F2, F3 if cheap (F2: `apt-get -qq -o Dpkg::Use-Pty=0`; F3: `log:` path with `~`)
 - [x] F7: a tap cask stray keeps its tap (install receipt); an ignored tap cask matches by its token
+- [x] F12: tracked changes left out of the sync commit stop the pull with the files and how to commit or stash them
 - [x] tests for each; `make check` passes
 
 ### Task 2: macOS checks (on the Mac)

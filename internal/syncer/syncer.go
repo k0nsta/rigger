@@ -197,9 +197,34 @@ func (e *ConflictError) Error() string {
 // Unwrap lets errors.Is match ErrConflict.
 func (e *ConflictError) Unwrap() error { return ErrConflict }
 
+// ErrUncommitted means tracked files have changes that were not committed, so pull --rebase
+// cannot run.
+var ErrUncommitted = errors.New("local changes were not committed")
+
+// UncommittedError names the tracked files with changes left out of the sync commit.
+type UncommittedError struct {
+	Files []string
+}
+
+func (e *UncommittedError) Error() string {
+	return fmt.Sprintf("%d local change(s) were not committed (%s): sync pulls with rebase, which needs them committed or stashed",
+		len(e.Files), strings.Join(e.Files, ", "))
+}
+
+// Unwrap lets errors.Is match ErrUncommitted.
+func (e *UncommittedError) Unwrap() error { return ErrUncommitted }
+
 // Pull rebases local commits onto the remote; a conflict is aborted so live linked configs
-// never see conflict markers.
+// never see conflict markers. Changed tracked files stop it before git does: an autostash could
+// leave conflict markers in a live config when it is popped.
 func (s *Syncer) Pull(ctx context.Context) error {
+	out, err := s.mustGit(ctx, "diff", "--name-only", "HEAD")
+	if err != nil {
+		return err
+	}
+	if files := sh.Lines(out); len(files) > 0 {
+		return &UncommittedError{Files: files}
+	}
 	res, err := s.netGit(ctx, "pull", "--rebase", "--no-autostash")
 	if err != nil {
 		return err
