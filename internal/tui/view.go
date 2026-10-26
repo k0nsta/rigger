@@ -274,7 +274,7 @@ func (m *Model) viewRun(b *strings.Builder) {
 	if m.pwReq != nil {
 		b.WriteString(todoStyle.Render("🔒 "+m.pwReq.Message) + "\n")
 		b.WriteString(m.input.View() + "\n")
-		b.WriteString(helpStyle.Render("enter send · esc cancel this step · kept in memory for this run only") + "\n\n")
+		b.WriteString(helpStyle.Render("typing is not shown · enter send · esc cancel this step · kept in memory for this run only") + "\n\n")
 	}
 	b.WriteString(headerStyle.Render("Applying") + "\n\n")
 	for _, cs := range m.plan {

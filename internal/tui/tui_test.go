@@ -357,6 +357,9 @@ func TestSudoPasswordPromptDuringRun(t *testing.T) {
 	require.NotNil(t, m.pwReq, "password overlay shown")
 	assert.Contains(t, view(m), "sudo password (asked once for this run)")
 	typeText(t, m, "hunter22")
+	assert.NotContains(t, view(m), "*", "the password's length is not shown either")
+	assert.NotContains(t, view(m), "hunter22")
+	assert.Contains(t, view(m), "typing is not shown")
 	pump(t, m, key("enter"), nil)
 	pump(t, m, nil, m.waitEvent())
 
