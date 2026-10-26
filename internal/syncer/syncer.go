@@ -263,7 +263,8 @@ func Strays(ctx context.Context, r Runner, brewfiles []action.Brew, ignore []str
 		}
 	}
 	for _, i := range ignore {
-		known["brew:"+i], known["cask:"+i] = true, true
+		short := i[strings.LastIndex(i, "/")+1:] // a tap cask is ignored by its full token
+		known["brew:"+short], known["cask:"+short] = true, true
 	}
 	var out []Stray
 	for _, q := range []struct {
@@ -295,7 +296,9 @@ func Strays(ctx context.Context, r Runner, brewfiles []action.Brew, ignore []str
 	return out, nil
 }
 
-// describe fills Desc from `brew info`; descriptions are a nicety, so failures leave them empty.
+// describe fills Desc from `brew info`, and gives a cask from a third-party tap its full token
+// (`brew list --cask` prints only `goreleaser`, which no Brewfile on a fresh machine can install
+// without `goreleaser/tap/`). Failures leave both as they are.
 func describe(ctx context.Context, r Runner, strays []Stray) {
 	for _, q := range []struct{ kind, flag string }{{action.KindBrew, "--formula"}, {action.KindCask, "--cask"}} {
 		var names []string
@@ -326,16 +329,21 @@ func describe(ctx context.Context, r Runner, strays []Stray) {
 		if json.Unmarshal([]byte(res.Output), &info) != nil {
 			continue
 		}
-		descs := map[string]string{}
+		descs, full := map[string]string{}, map[string]string{}
 		for _, f := range info.Formulae {
 			descs[f.Name], descs[f.FullName] = f.Desc, f.Desc
 		}
 		for _, c := range info.Casks {
 			descs[c.Token], descs[c.FullToken] = c.Desc, c.Desc
+			full[c.Token] = c.FullToken
 		}
 		for i := range strays {
-			if strays[i].Kind == q.kind {
-				strays[i].Desc = descs[strays[i].Name]
+			if strays[i].Kind != q.kind {
+				continue
+			}
+			strays[i].Desc = descs[strays[i].Name]
+			if f := full[strays[i].Name]; f != "" {
+				strays[i].Name = f
 			}
 		}
 	}

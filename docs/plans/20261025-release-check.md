@@ -25,6 +25,7 @@
 | F4 | high | A tool that replaces a linked file with a real one (`sed -i`, some editors' atomic save) stops tracking it silently. The next `sync --yes` relinks the repo version and moves the user's edit to a backup, printing only `link ~/.zshrc (differs)`. |
 | F5 | medium | A pull conflict prints git's own hints (`git rebase --skip`), which no longer apply since rigger aborted, and no way to resolve it. |
 | F1 | low | `init` succeeds with an empty checkout when the remote's HEAD points to a missing branch; it should fail when `manifest.yaml` is missing. |
+| F7 | high | (found by the VM matrix, 2026-10-26) `sync` writes a stray cask from a third-party tap by its bare token (`cask "goreleaser"`, tap `goreleaser/tap`): a fresh Mac has no such cask, so the whole Brewfile fails. Fixed: the stray takes Homebrew's `full_token`; machine-setup's `brew/dev.Brewfile` line removed (the formula is listed). |
 | F6 | low | A missing secret is named but not where to put it (`~/.config/rigger/secrets.env`, or `op://` in it). |
 | F2 | cosmetic | apt's raw progress fills the apply output. |
 | F3 | cosmetic | `log:` path printed in full, not with `~`. |
@@ -37,6 +38,7 @@
 - [x] F1: `init` fails when the checkout has no `manifest.yaml`
 - [x] F6: missing-secret message names `~/.config/rigger/secrets.env`
 - [x] F2, F3 if cheap (F2: `apt-get -qq -o Dpkg::Use-Pty=0`; F3: `log:` path with `~`)
+- [x] F7: a tap cask stray keeps its tap (`full_token`); an ignored tap cask matches by its token
 - [x] tests for each; `make check` passes
 
 ### Task 2: macOS checks (on the Mac)

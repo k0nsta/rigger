@@ -133,24 +133,46 @@ func TestStrays(t *testing.T) {
 		case "brew leaves --installed-on-request":
 			return sh.Result{Output: "\x1b[32m==>\x1b[0m \x1b[1mDownloading Homebrew API data\x1b[0m\ngit\nhttpie\nowner/apps/tool\nlocal-only\ngcc@14\n"}, nil
 		case "brew list --cask -1":
-			return sh.Result{Output: "slack\nsteam\n"}, nil
+			return sh.Result{Output: "slack\nsteam\ngoreleaser\nignored-tap-cask\n"}, nil
+		case "brew info --json=v2 --cask goreleaser steam":
+			return sh.Result{Output: `{"formulae":[],"casks":[{"token":"goreleaser","full_token":"goreleaser/tap/goreleaser","desc":"Release engineering, simplified"},{"token":"steam","full_token":"steam","desc":"Video game platform"}]}`}, nil
 		case "brew info --json=v2 --formula gcc@14 httpie":
 			return sh.Result{Output: `{"formulae":[{"name":"httpie","full_name":"httpie","desc":"User-friendly cURL replacement"}],"casks":[]}`}, nil
-		case "brew info --json=v2 --cask steam":
-			return sh.Result{Code: 1, Output: "Error: offline"}, nil
 		}
 		t.Fatalf("unexpected %s", c)
 		return sh.Result{}, nil
 	}).Times(4)
 
 	brewfiles := []action.Brew{{Packages: action.ParseBrewfile([]byte("brew \"git\"\nbrew \"owner/apps/tool\"\ncask \"slack\"\n"))}}
-	strays, err := Strays(context.Background(), r, brewfiles, []string{"local-only"})
+	strays, err := Strays(context.Background(), r, brewfiles, []string{"local-only", "other/tap/ignored-tap-cask"})
 	require.NoError(t, err)
 	assert.Equal(t, []Stray{
 		{Kind: "brew", Name: "gcc@14"},
 		{Kind: "brew", Name: "httpie", Desc: "User-friendly cURL replacement"},
-		{Kind: "cask", Name: "steam"}, // a failing brew info only loses the description
+		// a tap cask keeps its tap, so a fresh machine can install the Brewfile line
+		{Kind: "cask", Name: "goreleaser/tap/goreleaser", Desc: "Release engineering, simplified"},
+		{Kind: "cask", Name: "steam", Desc: "Video game platform"},
 	}, strays)
+}
+
+func TestStraysWithoutBrewInfo(t *testing.T) {
+	r := mocks.NewMockRunner(gomock.NewController(t))
+	r.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, c sh.Cmd) (sh.Result, error) {
+		switch c.String() {
+		case "brew leaves --installed-on-request":
+			return sh.Result{}, nil
+		case "brew list --cask -1":
+			return sh.Result{Output: "steam\n"}, nil
+		case "brew info --json=v2 --cask steam":
+			return sh.Result{Code: 1, Output: "Error: offline"}, nil
+		}
+		t.Fatalf("unexpected %s", c)
+		return sh.Result{}, nil
+	}).Times(3)
+
+	strays, err := Strays(context.Background(), r, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []Stray{{Kind: "cask", Name: "steam"}}, strays, "a failing brew info only loses the description")
 }
 
 func TestAddToBrewfile(t *testing.T) {
