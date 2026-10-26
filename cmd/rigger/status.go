@@ -77,6 +77,6 @@ func missingSecrets(home string, keys []string, note string) string {
 		note = " (" + note + ")"
 	}
 	file := sh.Tilde(home, filepath.Join(state.ConfigDir(home), "secrets.env"))
-	return fmt.Sprintf("\nmissing secrets%s: %s\n  add each to %s as KEY=value, or KEY=op://vault/item/field for 1Password\n",
+	return fmt.Sprintf("\nmissing secrets%s: %s\n  add each to %s as KEY=value (if you use 1Password, KEY=op://vault/item/field also works)\n",
 		note, strings.Join(keys, ", "), file)
 }

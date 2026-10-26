@@ -31,7 +31,7 @@ type Syncer struct {
 	Repo   string
 	Runner Runner
 	// NetTimeout bounds a pull or push (default 90s): long enough to approve an SSH key in an
-	// agent such as 1Password, short enough that a dead network does not hang sync.
+	// SSH agent, short enough that a dead network does not hang sync.
 	NetTimeout time.Duration
 }
 
@@ -56,7 +56,7 @@ func (s *Syncer) netGit(ctx context.Context, args ...string) (sh.Result, error) 
 	}
 	res, err := s.Runner.Run(ctx, c)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return res, fmt.Errorf("git %s: %w after %s: check the network, or approve the SSH key if an agent (1Password, Touch ID) is asking; `git -C %s %s` shows what it waits for",
+		return res, fmt.Errorf("git %s: %w after %s: check the network, or approve the SSH key if your SSH agent is asking; `git -C %s %s` shows what it waits for",
 			args[0], ErrNoAnswer, timeout, s.Repo, args[0])
 	}
 	return res, err

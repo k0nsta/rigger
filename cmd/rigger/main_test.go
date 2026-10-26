@@ -198,6 +198,6 @@ func TestMissingSecretsSaysWhere(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	got := missingSecrets("/home/u", []string{"A", "B"}, "components needing them are skipped")
 	assert.Equal(t, "\nmissing secrets (components needing them are skipped): A, B\n"+
-		"  add each to ~/.config/rigger/secrets.env as KEY=value, or KEY=op://vault/item/field for 1Password\n", got)
+		"  add each to ~/.config/rigger/secrets.env as KEY=value (if you use 1Password, KEY=op://vault/item/field also works)\n", got)
 	assert.Contains(t, missingSecrets("/home/u", []string{"A"}, ""), "\nmissing secrets: A\n")
 }
