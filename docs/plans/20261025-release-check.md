@@ -26,6 +26,11 @@
 | F5 | medium | A pull conflict prints git's own hints (`git rebase --skip`), which no longer apply since rigger aborted, and no way to resolve it. |
 | F1 | low | `init` succeeds with an empty checkout when the remote's HEAD points to a missing branch; it should fail when `manifest.yaml` is missing. |
 | F7 | high | (found by the VM matrix, 2026-10-26) `sync` writes a stray cask from a third-party tap by its bare token (`cask "goreleaser"`, tap `goreleaser/tap`): a fresh Mac has no such cask, so the whole Brewfile fails. Fixed: the stray takes its tap from the cask's install receipt (`Caskroom/<token>/.metadata/INSTALL_RECEIPT.json`; `brew info` fails as a whole when one tap is untrusted, Homebrew 7); machine-setup's `brew/dev.Brewfile` line removed (the formula is listed). |
+| F12 | medium | (2026-10-26) "commit which?" answered `none` with local changes: the pull fails with git's "cannot pull with rebase: You have unstaged changes"; sync should say the changes must be committed or stashed first. |
+| F8 | cosmetic | (2026-10-26) the secret screen's hint is cut at the window edge, not wrapped. |
+| F9 | cosmetic | (2026-10-26) the finish screen counts components that were already ok as "done" (4 done after "3 component(s) will change"). |
+| F10 | cosmetic | (2026-10-26) a package unticked in the host file shows no install state when ticked again in the TUI. |
+| F11 | cosmetic | (2026-10-26) one untrusted tap fails the batched `brew info`, so every stray cask loses its description. |
 | F6 | low | A missing secret is named but not where to put it (`~/.config/rigger/secrets.env`, or `op://` in it). |
 | F2 | cosmetic | apt's raw progress fills the apply output. |
 | F3 | cosmetic | `log:` path printed in full, not with `~`. |
@@ -45,19 +50,19 @@
 Build first: `git pull && make build` in the rigger repo; use `bin/rigger`.
 
 Fresh Mac (tart VMs, see `tests/vm/run.sh`):
-- [ ] `tests/vm/run.sh golden` once, then `tests/vm/run.sh --repo ~/Dev/github.com/machine-setup slim=slim personal=personal random:1 random:2`
-- [ ] every case: first run installs, second run is a no-op; results in `tests/vm/.work/results/`
+- [x] `tests/vm/run.sh golden` once, then `tests/vm/run.sh --repo ~/Dev/github.com/machine-setup slim=slim personal=personal random:1 random:2`
+- [x] every case: first run installs, second run is a no-op; results in `tests/vm/.work/results/` (2026-10-26: slim, random-2 pass; personal, random-1 failed on F7, pass against machine-setup with the cask line removed)
 
 TUI and sync on the real Mac, with a throwaway HOME so the real setup is untouched (Homebrew is shared, so the example's `jq`, `ripgrep`, `git` and Fira Code may get installed):
-- [ ] `export H=$(mktemp -d); cp -R example $H/src; git -C $H/src init -q -b main; git -C $H/src add .; git -C $H/src commit -qm init`
-- [ ] `HOME=$H bin/rigger init $H/src`: host screen, `laptop` profile, enter on Core CLI, untick `jq`, review, enter; finish screen lists what ran
-- [ ] the cask install asks for the sudo password once, in the masked prompt
-- [ ] rerun `HOME=$H bin/rigger`, untick `git config`, `c`: review lists it under "Unpicked on this machine" with `~/.gitconfig`; enter saves `remove: [git]`
-- [ ] `brew install cowsay`, then `HOME=$H bin/rigger sync`: the stray shows its description and which profiles use each Brewfile; answer `i`; `ignore_packages: [cowsay]` lands in the host file; `brew uninstall cowsay`
-- [ ] `git -C $H/github.com/... switch -c feat/x` (or the clone path `init` printed): TUI header warns, `sync` refuses; switch back
+- [x] `export H=$(mktemp -d); cp -R example $H/src; git -C $H/src init -q -b main; git -C $H/src add .; git -C $H/src commit -qm init`
+- [x] `HOME=$H bin/rigger init $H/src`: host screen, `laptop` profile, enter on Core CLI, untick `jq`, review, enter; finish screen lists what ran
+- [x] the sudo password is asked once (2026-10-26: nothing in the example needed sudo on a Mac that has it all; checked with a `cmds` entry running `sudo -k && sudo true`; the prompt now shows nothing while typing)
+- [x] rerun `HOME=$H bin/rigger`, untick `git config`, `c`: review lists it under "Unpicked on this machine" with `~/.gitconfig`; enter saves `remove: [git]`
+- [x] `brew install cowsay`, then `HOME=$H bin/rigger sync`: the stray shows its description and which profiles use each Brewfile; answer `i`; `ignore_packages: [cowsay]` lands in the host file; `brew uninstall cowsay`
+- [x] `git -C $H/github.com/... switch -c feat/x` (or the clone path `init` printed): TUI header warns, `sync` refuses; switch back
 
 Real machine (`mba`, `~/Dev/github.com/machine-setup`):
-- [ ] `bin/rigger status`: everything ok, vim not listed
+- [x] `bin/rigger status`: everything ok, vim not listed
 - [ ] `bin/rigger sync` with the 1Password SSH agent: approve the key, sync finishes; leave it unapproved: fails after 90 s with the "approve the SSH key" message
 - [ ] Wi-Fi off, `bin/rigger sync`: fails within ~15 s (ssh ConnectTimeout) with a clear message
 - [ ] agterm layouts export (`exported N layout file(s)`), nothing else unexpected in "local changes"
