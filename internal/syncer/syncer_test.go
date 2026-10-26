@@ -88,8 +88,37 @@ func TestPullConflictAborts(t *testing.T) {
 	require.NoError(t, b.Commit(ctx, "b", []string{"zsh/.zshrc"}))
 	err := b.Pull(ctx)
 	require.ErrorIs(t, err, ErrConflict)
+	var conflict *ConflictError
+	require.ErrorAs(t, err, &conflict)
+	assert.Equal(t, []string{"zsh/.zshrc"}, conflict.Files)
+	assert.Contains(t, err.Error(), "in zsh/.zshrc; rigger aborted the rebase: your commits stay local")
+	assert.NotContains(t, err.Error(), "git rebase --skip", "git's own hints do not apply after the abort")
+	assert.Equal(t, 1, b.Ahead(ctx), "b's commit is kept")
 	assert.Equal(t, "b edit\n", testutil.ReadFile(t, filepath.Join(b.Repo, "zsh", ".zshrc")), "no conflict markers left")
 	assert.NoDirExists(t, filepath.Join(b.Repo, ".git", "rebase-merge"))
+}
+
+func TestPullStopsOnUncommittedChanges(t *testing.T) {
+	ctx := context.Background()
+	a, b := machines(t)
+	testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "a edit\n")
+	require.NoError(t, a.Commit(ctx, "a", []string{"zsh/.zshrc"}))
+	require.NoError(t, a.Push(ctx))
+
+	// an untracked file does not stop the pull
+	testutil.WriteFile(t, filepath.Join(b.Repo, "scratch.txt"), "new\n")
+	require.NoError(t, b.Pull(ctx))
+
+	// a tracked file left out of the sync commit does
+	testutil.WriteFile(t, filepath.Join(b.Repo, "zsh", ".zshrc"), "b edit, not committed\n")
+	err := b.Pull(ctx)
+	require.ErrorIs(t, err, ErrUncommitted)
+	var uncommitted *UncommittedError
+	require.ErrorAs(t, err, &uncommitted)
+	assert.Equal(t, []string{"zsh/.zshrc"}, uncommitted.Files)
+	assert.Contains(t, err.Error(), "1 local change(s) were not committed (zsh/.zshrc)")
+	assert.NotContains(t, err.Error(), "cannot pull with rebase", "not git's own message")
+	assert.Equal(t, "b edit, not committed\n", testutil.ReadFile(t, filepath.Join(b.Repo, "zsh", ".zshrc")), "the edit is untouched")
 }
 
 func TestGateRefusesCredentials(t *testing.T) {
@@ -120,31 +149,73 @@ func TestCommitNothing(t *testing.T) {
 	assert.Equal(t, 0, a.Ahead(context.Background()))
 }
 
+// caskroom fakes `brew --caskroom` with an install receipt naming each cask's tap.
+func caskroom(t *testing.T, taps map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for token, tap := range taps {
+		testutil.WriteFile(t, filepath.Join(dir, token, ".metadata", "INSTALL_RECEIPT.json"), `{"source":{"tap":"`+tap+`","path":"x"}}`)
+	}
+	return dir
+}
+
 func TestStrays(t *testing.T) {
+	room := caskroom(t, map[string]string{"goreleaser": "goreleaser/tap", "steam": "homebrew/cask"})
 	r := mocks.NewMockRunner(gomock.NewController(t))
 	r.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, c sh.Cmd) (sh.Result, error) {
 		switch c.String() {
 		case "brew leaves --installed-on-request":
 			return sh.Result{Output: "\x1b[32m==>\x1b[0m \x1b[1mDownloading Homebrew API data\x1b[0m\ngit\nhttpie\nowner/apps/tool\nlocal-only\ngcc@14\n"}, nil
 		case "brew list --cask -1":
-			return sh.Result{Output: "slack\nsteam\n"}, nil
+			return sh.Result{Output: "slack\nsteam\ngoreleaser\nignored-tap-cask\n"}, nil
+		case "brew --caskroom":
+			return sh.Result{Output: room + "\n"}, nil
+		case "brew info --json=v2 --cask goreleaser/tap/goreleaser steam":
+			return sh.Result{Output: `{"formulae":[],"casks":[{"token":"goreleaser","full_token":"goreleaser/tap/goreleaser","desc":"Release engineering, simplified"},{"token":"steam","full_token":"steam","desc":"Video game platform"}]}`}, nil
 		case "brew info --json=v2 --formula gcc@14 httpie":
 			return sh.Result{Output: `{"formulae":[{"name":"httpie","full_name":"httpie","desc":"User-friendly cURL replacement"}],"casks":[]}`}, nil
-		case "brew info --json=v2 --cask steam":
-			return sh.Result{Code: 1, Output: "Error: offline"}, nil
+		}
+		t.Fatalf("unexpected %s", c)
+		return sh.Result{}, nil
+	}).Times(5)
+
+	brewfiles := []action.Brew{{Packages: action.ParseBrewfile([]byte("brew \"git\"\nbrew \"owner/apps/tool\"\ncask \"slack\"\n"))}}
+	strays, err := Strays(context.Background(), r, brewfiles, []string{"local-only", "other/tap/ignored-tap-cask"})
+	require.NoError(t, err)
+	assert.Equal(t, []Stray{
+		{Kind: "brew", Name: "gcc@14"},
+		{Kind: "brew", Name: "httpie", Desc: "User-friendly cURL replacement"},
+		// a tap cask keeps its tap, so a fresh machine can install the Brewfile line
+		{Kind: "cask", Name: "goreleaser/tap/goreleaser", Desc: "Release engineering, simplified"},
+		{Kind: "cask", Name: "steam", Desc: "Video game platform"},
+	}, strays)
+}
+
+func TestStraysWithoutBrewInfo(t *testing.T) {
+	room := caskroom(t, map[string]string{"agr": "k0nsta/apps"})
+	r := mocks.NewMockRunner(gomock.NewController(t))
+	r.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, c sh.Cmd) (sh.Result, error) {
+		switch c.String() {
+		case "brew leaves --installed-on-request":
+			return sh.Result{}, nil
+		case "brew list --cask -1":
+			return sh.Result{Output: "agr\nsteam\n"}, nil
+		case "brew --caskroom":
+			return sh.Result{Output: room + "\n"}, nil
+		case "brew info --json=v2 --cask k0nsta/apps/agr steam":
+			// Homebrew 7 refuses a cask of an untrusted tap, which fails the whole call
+			return sh.Result{Code: 1, Output: "Error: Refusing to load cask k0nsta/apps/agr from untrusted tap k0nsta/apps."}, nil
 		}
 		t.Fatalf("unexpected %s", c)
 		return sh.Result{}, nil
 	}).Times(4)
 
-	brewfiles := []action.Brew{{Packages: action.ParseBrewfile([]byte("brew \"git\"\nbrew \"owner/apps/tool\"\ncask \"slack\"\n"))}}
-	strays, err := Strays(context.Background(), r, brewfiles, []string{"local-only"})
+	strays, err := Strays(context.Background(), r, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []Stray{
-		{Kind: "brew", Name: "gcc@14"},
-		{Kind: "brew", Name: "httpie", Desc: "User-friendly cURL replacement"},
-		{Kind: "cask", Name: "steam"}, // a failing brew info only loses the description
-	}, strays)
+		{Kind: "cask", Name: "k0nsta/apps/agr"}, // the tap comes from the receipt, not brew info
+		{Kind: "cask", Name: "steam"},           // no receipt: the token as listed
+	}, strays, "a failing brew info only loses the descriptions")
 }
 
 func TestAddToBrewfile(t *testing.T) {

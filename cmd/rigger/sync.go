@@ -15,6 +15,7 @@ import (
 	"github.com/k0nsta/rigger/internal/engine"
 	"github.com/k0nsta/rigger/internal/manifest"
 	"github.com/k0nsta/rigger/internal/repo"
+	"github.com/k0nsta/rigger/internal/sh"
 	"github.com/k0nsta/rigger/internal/state"
 	"github.com/k0nsta/rigger/internal/syncer"
 )
@@ -68,6 +69,13 @@ func (c *cli) sync(ctx context.Context, args []string) error {
 
 	fmt.Fprintln(c.out, "pulling…")
 	if err := sy.Pull(ctx); err != nil {
+		if errors.Is(err, syncer.ErrConflict) {
+			return fmt.Errorf("%w\nresolve it by hand:\n%s", err, conflictFix(sh.Tilde(s.Home, s.Repo)))
+		}
+		if errors.Is(err, syncer.ErrUncommitted) {
+			return fmt.Errorf("%w\n  run rigger sync again and commit them, or set them aside: git -C %s stash, rigger sync, git -C %s stash pop",
+				err, sh.Tilde(s.Home, s.Repo), sh.Tilde(s.Home, s.Repo))
+		}
 		return err
 	}
 
@@ -151,7 +159,9 @@ func (c *cli) applyFromRepo(ctx context.Context, s *app.Session, sel app.Selecti
 		return err
 	}
 	defer stop()
-	outcomes := s.Engine.Apply(ctx, apply, engine.Decisions{Running: processRunning(ctx, s.Exec)}, c.printEvent)
+	d := c.decideReplacedLinks(in, apply, yes, s.Home)
+	d.Running = processRunning(ctx, s.Exec)
+	outcomes := s.Engine.Apply(ctx, apply, d, c.printEvent)
 	if err := s.Local.Save(s.LocalPath); err != nil {
 		return err
 	}
@@ -161,6 +171,59 @@ func (c *cli) applyFromRepo(ctx context.Context, s *app.Session, sel app.Selecti
 		}
 	}
 	return nil
+}
+
+// decideReplacedLinks asks what to do with each link whose target a tool replaced with a real
+// file of other content (sed -i, an editor's atomic save): relinking it silently would move the
+// user's edit to a backup. With --yes the file is left as it is and a warning says how to adopt it.
+func (c *cli) decideReplacedLinks(in *bufio.Reader, apply []engine.ComponentStatus, yes bool, home string) engine.Decisions {
+	d := engine.Decisions{Adopt: map[string]bool{}, Leave: map[string]bool{}}
+	for _, cs := range apply {
+		for _, a := range cs.Actions {
+			if a.Kind != engine.KindLink || a.Status != action.Differs {
+				continue
+			}
+			target := sh.Tilde(home, a.Target)
+			if yes {
+				d.Leave[a.Key()] = true
+				fmt.Fprintf(c.out, "warning: %s is a real file now, with other content than the repo's; left as it is.\n"+
+					"  take it into the repo: rigger adopt %s\n", target, target)
+				continue
+			}
+			fmt.Fprintf(c.out, "\n%s (%s) is a real file now, with other content than the repo's:\n", target, cs.ID())
+			fmt.Fprintln(c.out, "  a      adopt it: copy it into the repo, then link it")
+			fmt.Fprintln(c.out, "  k      keep the repo version: your file goes to a backup")
+			fmt.Fprintln(c.out, "  enter  leave it as it is for now")
+			switch c.askChoice(in, "  choice [a/k/enter]: ", "a", "k", "") {
+			case "a":
+				d.Adopt[a.Key()] = true
+			case "k":
+			default:
+				d.Leave[a.Key()] = true
+			}
+		}
+	}
+	return d
+}
+
+// askChoice reads one answer from choices, the last of which is "" (just enter), asking again
+// until it is one; input that ends returns "".
+func (c *cli) askChoice(in *bufio.Reader, prompt string, choices ...string) string {
+	for {
+		fmt.Fprint(c.out, prompt)
+		line, err := in.ReadString('\n')
+		if err != nil && line == "" {
+			fmt.Fprintln(c.out)
+			return ""
+		}
+		answer := strings.TrimSpace(line)
+		for _, ch := range choices {
+			if answer == ch {
+				return answer
+			}
+		}
+		fmt.Fprintf(c.out, "  type one of %s, or just enter\n", strings.Join(choices[:len(choices)-1], ", "))
+	}
 }
 
 // askApply asks which pending components to apply and which to drop from this host,
@@ -480,4 +543,11 @@ func (c *cli) pickFiles(changes []syncer.Change, in *bufio.Reader, yes bool) []s
 		}
 	}
 	return picked
+}
+
+// conflictFix is how to finish a pull that rigger aborted on a conflict.
+func conflictFix(dir string) string {
+	return fmt.Sprintf("  git -C %s pull --rebase\n"+
+		"  fix the conflicting files, then git -C %s add <file> && git -C %s rebase --continue\n"+
+		"  rigger sync", dir, dir, dir)
 }

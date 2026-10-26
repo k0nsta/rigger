@@ -135,6 +135,8 @@ Then `rigger sync` shares it.
 
 `rigger sync`: export layouts → offer stray Homebrew packages (add to a Brewfile or ignore) → you pick changed files → credential gate (built-in patterns, plus `gitleaks` when installed) → commit `sync(<host>): …` → `git pull --rebase` (a conflict is aborted; live configs never get conflict markers) → apply what other machines added (each listed with why it is picked: its profile, `hosts/<name>.yaml`, or `needed by`; `-n` drops one from this host for good by writing `remove`) → push.
 
+A link that a tool replaced with a real file of other content (`sed -i`, an editor's atomic save) is never relinked silently: `sync` asks to adopt it, keep the repo version (your file goes to a backup, and the backup path is printed) or leave it; `sync --yes` leaves it and says `rigger adopt <path>`. A pull conflict is aborted, and the message names the files and how to finish by hand. Tracked changes left out of the commit stop the pull before it starts, with how to commit or stash them.
+
 ssh runs in batch mode and a pull or push gets 90 s: a passphrase, host-key question, unapproved agent key or dead network fails with the reason instead of hanging.
 
 The checkout is live: links point into it, so it stays on the default branch (`origin/HEAD`, else `main`/`master`). Off it, `sync` refuses and `status`, `apply` and the TUI warn. Do feature work in a `git worktree`.

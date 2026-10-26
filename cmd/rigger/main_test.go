@@ -121,6 +121,42 @@ func TestInitClonesAndRemembers(t *testing.T) {
 	assert.Contains(t, out.String(), "dry run")
 }
 
+func TestInitRefusesACheckoutWithoutManifest(t *testing.T) {
+	work := copyExample(t)
+	bare := filepath.Join(t.TempDir(), "setup.git")
+	for _, step := range []struct {
+		dir  string
+		args []string
+	}{
+		{work, []string{"init", "-q", "-b", "main"}},
+		{work, []string{"add", "."}},
+		{work, []string{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"}},
+		{"", []string{"init", "-q", "--bare", bare}},
+		{work, []string{"push", "-q", bare, "main"}},
+		// the remote's HEAD names a branch that does not exist: the clone has an empty checkout
+		{bare, []string{"symbolic-ref", "HEAD", "refs/heads/gone"}},
+	} {
+		cmd := exec.Command("git", step.args...)
+		cmd.Dir = step.dir
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+
+	c, _ := newCLI(t, false)
+	dir := filepath.Join(c.home, "setup")
+	err := c.run(context.Background(), []string{"init", bare, "--dir", dir})
+	require.ErrorContains(t, err, "~/setup has no manifest.yaml (the clone was removed)")
+	assert.NoFileExists(t, filepath.Join(c.home, ".config", "rigger", "state.yaml"), "a repo that is not one is not remembered")
+	assert.NoDirExists(t, dir, "a retry clones afresh")
+
+	// once the remote's HEAD is fixed, init works
+	cmd := exec.Command("git", "symbolic-ref", "HEAD", "refs/heads/main")
+	cmd.Dir = bare
+	require.NoError(t, cmd.Run())
+	require.NoError(t, c.run(context.Background(), []string{"init", bare, "--dir", dir, "--no-run"}))
+	assert.FileExists(t, filepath.Join(dir, "manifest.yaml"))
+}
+
 func TestSplitPositional(t *testing.T) {
 	url, rest := splitPositional([]string{"--dir", "/x", "git@h:a/b", "--no-run"})
 	assert.Equal(t, "git@h:a/b", url)
@@ -156,4 +192,12 @@ func TestAdoptSeedAndLink(t *testing.T) {
 	assert.Contains(t, testutil.ReadFile(t, filepath.Join(repo, "git", ".gitconfig")), "name = mine")
 
 	require.ErrorContains(t, c.run(ctx, []string{"adopt", "~/.unknown", "--repo", repo}), "not a seed or link of any component")
+}
+
+func TestMissingSecretsSaysWhere(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	got := missingSecrets("/home/u", []string{"A", "B"}, "components needing them are skipped")
+	assert.Equal(t, "\nmissing secrets (components needing them are skipped): A, B\n"+
+		"  add each to ~/.config/rigger/secrets.env as KEY=value, or KEY=op://vault/item/field for 1Password\n", got)
+	assert.Contains(t, missingSecrets("/home/u", []string{"A"}, ""), "\nmissing secrets: A\n")
 }

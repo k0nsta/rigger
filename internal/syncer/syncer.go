@@ -178,11 +178,53 @@ func lastLines(out string, n int) string {
 }
 
 // ErrConflict means pull --rebase hit a conflict and was aborted.
-var ErrConflict = errors.New("pull hit a conflict; aborted, nothing changed")
+var ErrConflict = errors.New("pull hit a conflict")
+
+// ConflictError is a pull --rebase that hit a conflict in Files and was aborted: local commits
+// are kept, the checkout is as it was before the pull.
+type ConflictError struct {
+	Files []string
+}
+
+func (e *ConflictError) Error() string {
+	in := ""
+	if len(e.Files) > 0 {
+		in = " in " + strings.Join(e.Files, ", ")
+	}
+	return fmt.Sprintf("pull hit a conflict%s; rigger aborted the rebase: your commits stay local, nothing else changed", in)
+}
+
+// Unwrap lets errors.Is match ErrConflict.
+func (e *ConflictError) Unwrap() error { return ErrConflict }
+
+// ErrUncommitted means tracked files have changes that were not committed, so pull --rebase
+// cannot run.
+var ErrUncommitted = errors.New("local changes were not committed")
+
+// UncommittedError names the tracked files with changes left out of the sync commit.
+type UncommittedError struct {
+	Files []string
+}
+
+func (e *UncommittedError) Error() string {
+	return fmt.Sprintf("%d local change(s) were not committed (%s): sync pulls with rebase, which needs them committed or stashed",
+		len(e.Files), strings.Join(e.Files, ", "))
+}
+
+// Unwrap lets errors.Is match ErrUncommitted.
+func (e *UncommittedError) Unwrap() error { return ErrUncommitted }
 
 // Pull rebases local commits onto the remote; a conflict is aborted so live linked configs
-// never see conflict markers.
+// never see conflict markers. Changed tracked files stop it before git does: an autostash could
+// leave conflict markers in a live config when it is popped.
 func (s *Syncer) Pull(ctx context.Context) error {
+	out, err := s.mustGit(ctx, "diff", "--name-only", "HEAD")
+	if err != nil {
+		return err
+	}
+	if files := sh.Lines(out); len(files) > 0 {
+		return &UncommittedError{Files: files}
+	}
 	res, err := s.netGit(ctx, "pull", "--rebase", "--no-autostash")
 	if err != nil {
 		return err
@@ -190,13 +232,16 @@ func (s *Syncer) Pull(ctx context.Context) error {
 	if res.Code == 0 {
 		return nil
 	}
-	if _, err := os.Stat(filepath.Join(s.Repo, ".git", "rebase-merge")); err == nil {
+	for _, dir := range []string{"rebase-merge", "rebase-apply"} {
+		if _, err := os.Stat(filepath.Join(s.Repo, ".git", dir)); err != nil {
+			continue
+		}
+		var files []string
+		if out, err := s.mustGit(ctx, "diff", "--name-only", "--diff-filter=U"); err == nil {
+			files = sh.Lines(out)
+		}
 		_, _ = s.git(ctx, "rebase", "--abort")
-		return fmt.Errorf("%w: %s", ErrConflict, lastLines(res.Output, 4))
-	}
-	if _, err := os.Stat(filepath.Join(s.Repo, ".git", "rebase-apply")); err == nil {
-		_, _ = s.git(ctx, "rebase", "--abort")
-		return fmt.Errorf("%w: %s", ErrConflict, lastLines(res.Output, 4))
+		return &ConflictError{Files: files}
 	}
 	return fmt.Errorf("git pull failed: %s", lastLines(res.Output, 4))
 }
@@ -243,7 +288,8 @@ func Strays(ctx context.Context, r Runner, brewfiles []action.Brew, ignore []str
 		}
 	}
 	for _, i := range ignore {
-		known["brew:"+i], known["cask:"+i] = true, true
+		short := i[strings.LastIndex(i, "/")+1:] // a tap cask is ignored by its full token
+		known["brew:"+short], known["cask:"+short] = true, true
 	}
 	var out []Stray
 	for _, q := range []struct {
@@ -270,9 +316,48 @@ func Strays(ctx context.Context, r Runner, brewfiles []action.Brew, ignore []str
 			}
 		}
 	}
+	withTaps(ctx, r, out)
 	sort.Slice(out, func(i, j int) bool { return out[i].Kind+out[i].Name < out[j].Kind+out[j].Name })
 	describe(ctx, r, out)
 	return out, nil
+}
+
+// withTaps gives a cask from a third-party tap its full token from the install receipt:
+// `brew list --cask` prints only `goreleaser`, which no Brewfile on a fresh machine can install
+// without `goreleaser/tap/`. The receipt needs no tap trust, unlike `brew info`.
+func withTaps(ctx context.Context, r Runner, strays []Stray) {
+	var caskroom string
+	for i := range strays {
+		if strays[i].Kind != action.KindCask || strings.Contains(strays[i].Name, "/") {
+			continue
+		}
+		if caskroom == "" {
+			res, err := r.Run(ctx, sh.Cmd{Path: "brew", Args: []string{"--caskroom"}})
+			if err != nil || res.Code != 0 {
+				return
+			}
+			lines := sh.Lines(res.Output)
+			if len(lines) == 0 {
+				return
+			}
+			caskroom = lines[len(lines)-1]
+		}
+		data, err := os.ReadFile(filepath.Join(caskroom, strays[i].Name, ".metadata", "INSTALL_RECEIPT.json"))
+		if err != nil {
+			continue
+		}
+		var receipt struct {
+			Source struct {
+				Tap string `json:"tap"`
+			} `json:"source"`
+		}
+		if json.Unmarshal(data, &receipt) != nil {
+			continue
+		}
+		if tap := receipt.Source.Tap; tap != "" && tap != "homebrew/cask" && packageName.MatchString(tap) {
+			strays[i].Name = tap + "/" + strays[i].Name
+		}
+	}
 }
 
 // describe fills Desc from `brew info`; descriptions are a nicety, so failures leave them empty.

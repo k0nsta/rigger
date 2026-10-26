@@ -41,7 +41,7 @@ func TestAptInstall(t *testing.T) {
 		return sh.Result{}, nil
 	})
 	require.NoError(t, AptInstall(context.Background(), r, []string{"git", "zsh"}, nil))
-	assert.Equal(t, []string{"sudo apt-get update -q", "sudo apt-get install -y -q git zsh"}, calls)
+	assert.Equal(t, []string{"sudo apt-get update -qq", "sudo apt-get install -y -qq -o Dpkg::Use-Pty=0 git zsh"}, calls)
 	require.NoError(t, AptInstall(context.Background(), r, nil, nil))
 }
 
@@ -56,7 +56,7 @@ func TestAptInstallAsRoot(t *testing.T) {
 		return sh.Result{}, nil
 	})
 	require.NoError(t, AptInstall(context.Background(), r, []string{"git"}, nil))
-	assert.Equal(t, []string{"apt-get update -q", "apt-get install -y -q git"}, calls)
+	assert.Equal(t, []string{"apt-get update -qq", "apt-get install -y -qq -o Dpkg::Use-Pty=0 git"}, calls)
 }
 
 func TestAptInstallFailure(t *testing.T) {

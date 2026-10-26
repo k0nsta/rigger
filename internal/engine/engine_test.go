@@ -167,6 +167,35 @@ components:
 	assert.True(t, again[0].Settled(), again[0].Summary)
 }
 
+func TestApplyLeavesALinkAndNamesTheBackup(t *testing.T) {
+	e, _ := newEngine(t, `
+version: 1
+components:
+  - id: cfg
+    group: g
+    links: [{src: rc, dst: ~/.rc}, {src: other, dst: ~/.other}]
+`, map[string]string{"rc": "repo rc", "other": "repo other"}, map[string]sh.Result{})
+	home := e.Env.Home
+	testutil.WriteFile(t, filepath.Join(home, ".rc"), "live rc")
+	testutil.WriteFile(t, filepath.Join(home, ".other"), "live other")
+
+	var lines []string
+	outcomes := e.Apply(context.Background(), plan(t, e, "cfg"), Decisions{
+		Leave: map[string]bool{"link:~/.rc": true},
+	}, func(ev Event) {
+		if ev.Kind == Line {
+			lines = append(lines, ev.Text)
+		}
+	})
+	require.Equal(t, Done, outcomes[0].Kind, outcomes[0].Err)
+
+	assert.Equal(t, "live rc", testutil.ReadFile(t, filepath.Join(home, ".rc")), "left as it is")
+	assert.Equal(t, "repo rc", testutil.ReadFile(t, filepath.Join(e.Env.Repo, "rc")), "repo untouched")
+	assert.Contains(t, lines, "left ~/.rc as it is (differs)")
+	require.Len(t, lines, 3, lines)
+	assert.Regexp(t, `^backed up the old ~/\.other to ~/backups/\d{8}-\d{6}/\.other$`, lines[2])
+}
+
 func TestApplySkipsComponentsWaitingForSecrets(t *testing.T) {
 	e, _ := newEngine(t, `
 version: 1

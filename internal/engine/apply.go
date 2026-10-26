@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/k0nsta/rigger/internal/action"
+	"github.com/k0nsta/rigger/internal/sh"
 )
 
 // EventKind is what happened to a component during apply.
@@ -118,12 +119,20 @@ func (e *Engine) applyAction(ctx context.Context, a ActionStatus, d Decisions, o
 		onLine("apt-get install " + a.Target)
 		return action.AptInstall(ctx, e.Runner, a.apt.Missing, onLine)
 	case KindLink:
+		if d.Leave[a.Key()] {
+			onLine(fmt.Sprintf("left %s as it is (%s)", a.Target, a.Status))
+			return nil
+		}
 		mode := action.KeepRepo
 		if d.Adopt[a.Key()] {
 			mode = action.AdoptLive
 		}
 		onLine(fmt.Sprintf("link %s (%s)", a.Target, a.Status))
-		return a.link.Apply(e.Env, mode)
+		backup, err := a.link.Apply(e.Env, mode)
+		if backup != "" {
+			onLine(fmt.Sprintf("backed up the old %s to %s", a.Target, sh.Tilde(e.Env.Home, backup)))
+		}
+		return err
 	case KindSeed:
 		mode := action.Keep
 		if d.Overwrite[a.Key()] {

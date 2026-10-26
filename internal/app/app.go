@@ -512,7 +512,7 @@ func (s *Session) Adopt(ctx context.Context, path string) (string, error) {
 			case action.OK:
 				return fmt.Sprintf("%s: %s is already linked; edits are tracked in %s", c.ID, l.Dst, l.Src), nil
 			case action.Differs:
-				if err := link.Apply(env, action.AdoptLive); err != nil {
+				if _, err := link.Apply(env, action.AdoptLive); err != nil {
 					return "", err
 				}
 				return fmt.Sprintf("%s: %s copied into %s and linked", c.ID, l.Dst, l.Src), nil

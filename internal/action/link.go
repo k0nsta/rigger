@@ -109,45 +109,46 @@ const (
 	AdoptLive
 )
 
-// Apply makes Dst a link to Src, backing up whatever was there.
-func (l Link) Apply(env *Env, mode LinkMode) error {
+// Apply makes Dst a link to Src, backing up whatever was there; backup is where that went
+// (empty when nothing was backed up).
+func (l Link) Apply(env *Env, mode LinkMode) (backup string, err error) {
 	probe, err := l.Probe()
 	if err != nil {
-		return err
+		return "", err
 	}
 	switch probe.Status {
 	case OK:
-		return nil
+		return "", nil
 	case Missing:
 		// nothing to back up
 	case Relink:
 		if err := os.Remove(l.Dst); err != nil {
-			return fmt.Errorf("remove stale link %s: %w", l.Dst, err)
+			return "", fmt.Errorf("remove stale link %s: %w", l.Dst, err)
 		}
 	default:
 		if mode == AdoptLive {
 			if probe.Status != Differs {
-				return fmt.Errorf("adopt %s: only real files that differ can be adopted (%s)", l.Dst, probe.Status)
+				return "", fmt.Errorf("adopt %s: only real files that differ can be adopted (%s)", l.Dst, probe.Status)
 			}
 			info, err := os.Stat(l.Src)
 			if err != nil {
-				return fmt.Errorf("stat %s: %w", l.Src, err)
+				return "", fmt.Errorf("stat %s: %w", l.Src, err)
 			}
 			if err := copyFile(l.Dst, l.Src, info.Mode().Perm()); err != nil {
-				return err
+				return "", err
 			}
 		}
-		if _, err := env.Backup(l.Dst); err != nil {
-			return err
+		if backup, err = env.Backup(l.Dst); err != nil {
+			return "", err
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(l.Dst), 0o755); err != nil {
-		return fmt.Errorf("create dir for %s: %w", l.Dst, err)
+		return "", fmt.Errorf("create dir for %s: %w", l.Dst, err)
 	}
 	if err := os.Symlink(l.Src, l.Dst); err != nil {
-		return fmt.Errorf("link %s: %w", l.Dst, err)
+		return "", fmt.Errorf("link %s: %w", l.Dst, err)
 	}
-	return nil
+	return backup, nil
 }
 
 func sameContent(a, b string) (bool, error) {

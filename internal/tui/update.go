@@ -55,7 +55,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		req := PasswordRequest(msg)
 		m.pwReq = &req
 		m.input.SetValue("")
-		m.input.EchoMode = textinput.EchoPassword
+		m.input.EchoMode = textinput.EchoNone // as sudo does: not even the length shows
 		m.input.Placeholder = ""
 		return m, tea.Batch(m.input.Focus(), m.waitEvent())
 	case eventMsg:
