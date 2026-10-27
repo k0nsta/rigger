@@ -1,6 +1,6 @@
 # rigger
 
-Go + Bubble Tea installer that applies and syncs a setup repo (the user's is `k0nsta/machine-setup`, cloned at `~/Dev/github.com/machine-setup`). The repo is **private** for now: never tag `v*` (GoReleaser would push a cask with private URLs into the public tap); ship binaries with `make build` or `GOOS=darwin GOARCH=arm64 go build -trimpath ./cmd/rigger`.
+Go + Bubble Tea installer that applies and syncs a setup repo (the user's is `k0nsta/machine-setup`, cloned at `~/Dev/github.com/machine-setup`). Public since 2026-10-27; releases are `v*` tags (see Releases below). For a local binary use `make build` or `GOOS=darwin GOARCH=arm64 go build -trimpath ./cmd/rigger`.
 
 ## Layout
 
@@ -33,11 +33,12 @@ make build    # bin/rigger
 
 ## Next
 
-Land order of plans: `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`.
+Land order of plans: `20261027-sync-tui` (v0.2.0) → `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`.
 
-## Going public
+## Releases
 
-- History was rewritten on 2026-10-12 (fixtures split, #1 retitled, plan names without a ticket prefix); the pre-cleanup repo with PRs #1–#24 is the private `k0nsta/rigger-archive`.
+- Tag `vX.Y.Z` on master after CI is green; `.github/workflows/release.yml` runs GoReleaser: darwin/linux × arm64/amd64, `install.sh` on the release, cask in `k0nsta/homebrew-apps` (needs the `HOMEBREW_TAP_GITHUB_TOKEN` repo secret, a fine-grained token with Contents write on that tap only).
+- Check after a release: `brew install --cask k0nsta/apps/rigger` on a Mac, `install.sh` on Linux, `rigger version`.
+- History was rewritten on 2026-10-12; the pre-cleanup repo with PRs #1–#24 is the private `k0nsta/rigger-archive`.
 - Plans here are `docs/plans/YYYYMMDD-<slug>.md`, without the `PMC-0` prefix used in other repos.
 - Token-shaped test fixtures stay split (`"ghp_" + "…"`) so nothing in the source looks like a real token; `gitleaks git .` must stay clean.
-- Releases need the `HOMEBREW_TAP_GITHUB_TOKEN` Actions secret, not set yet.
