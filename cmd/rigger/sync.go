@@ -37,6 +37,7 @@ func (c *cli) sync(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	c.noteElsewhere(s)
 	if s.HostFile == nil {
 		return fmt.Errorf("hosts/%s.yaml does not exist yet: run rigger (or rigger apply) on this machine first", s.Host)
 	}

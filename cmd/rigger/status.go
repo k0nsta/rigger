@@ -30,6 +30,7 @@ func (c *cli) status(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	c.noteElsewhere(s)
 	res, statuses, err := s.Plan(ctx, sel)
 	if err != nil {
 		return err

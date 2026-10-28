@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/k0nsta/rigger/internal/app"
 	"github.com/k0nsta/rigger/internal/testutil"
 )
 
@@ -40,6 +41,14 @@ func TestVersionAndHelp(t *testing.T) {
 	assert.Equal(t, "rigger dev\n", out.String())
 	require.ErrorContains(t, c.run(context.Background(), nil), "usage: rigger")
 	require.ErrorContains(t, c.run(context.Background(), []string{"nope"}), `unknown command "nope"`)
+}
+
+func TestNoteElsewhereWritesToErrorStream(t *testing.T) {
+	c, _ := newCLI(t, false)
+	var errOut bytes.Buffer
+	c.err = &errOut
+	c.noteElsewhere(&app.Session{Home: c.home, Repo: filepath.Join(c.home, "setup"), Elsewhere: filepath.Join(c.home, "worktree")})
+	assert.Equal(t, "using the setup repo at ~/setup (this is another checkout; pass --repo to use it)\n", errOut.String())
 }
 
 func TestValidate(t *testing.T) {

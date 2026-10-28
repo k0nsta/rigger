@@ -14,6 +14,7 @@ import (
 
 	"github.com/k0nsta/rigger/internal/app"
 	"github.com/k0nsta/rigger/internal/manifest"
+	"github.com/k0nsta/rigger/internal/sh"
 )
 
 // version is set by goreleaser.
@@ -142,6 +143,12 @@ func (f *sessionFlags) open(home string) (*app.Session, app.Selection, error) {
 		err = fmt.Errorf("%w (one of: %s)", err, strings.Join(s.Profiles(), ", "))
 	}
 	return s, sel, err
+}
+
+func (c *cli) noteElsewhere(s *app.Session) {
+	if s.Elsewhere != "" {
+		fmt.Fprintf(c.err, "using the setup repo at %s (this is another checkout; pass --repo to use it)\n", sh.Tilde(s.Home, s.Repo))
+	}
 }
 
 func newFlagSet(name string, out io.Writer) *flag.FlagSet {
