@@ -33,7 +33,7 @@ make build    # bin/rigger
 
 ## Next
 
-Land order of plans: `20261027-sync-tui` (v0.2.0) → `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`.
+Land order of plans: `20261028-skill-install` (v0.1.2) → `20261027-sync-tui` (v0.2.0) → `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`.
 
 ## Releases
 
