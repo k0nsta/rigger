@@ -25,16 +25,16 @@
 - conventions: test helpers take `*testing.T` first and call `t.Helper()`; shared helpers in `internal/testutil`; e2e in `tests/`.
 
 ## Testing Strategy
-- **unit (discover)**: cwd in a second checkout with the remembered repo present → remembered repo, `Elsewhere` set; remembered repo gone → cwd repo (moved); flag/env win; cwd inside the remembered repo → it.
+- **unit (discover)**: cwd in a second checkout with the remembered repo present → remembered repo, `Elsewhere` set; remembered repo gone → cwd repo (moved); flag/env win; cwd inside the remembered repo → it, also when cwd reaches it through a symlink (both sides compared after `filepath.EvalSymlinks`, so macOS `/var` vs `/private/var` prints no note).
 - **unit (skill)**: frontmatter and marker; install into a temp HOME writes both; rerun identical; an older marked file replaced; a foreign file at either path refused and neither written, `--force` replaces; relative/empty HOME refused; `~/.claude` a symlink into a temp repo → file lands in the repo; a symlinked `SKILL.md` → the link's target is written, the link kept.
 - **cli**: paths printed with `~`; repo note shown when the Claude path resolves inside the remembered repo (macOS `/var` → `/private/var` case), not for a sibling `repo-old`, not when `state.yaml` is unreadable; `rigger skill`, `rigger skill x`, `rigger skill install extra` → usage error; foreign file error names the path with `~`.
-- **e2e**: one assertion added to an existing e2e: `skill install` in the machine's HOME writes both files; a worktree of the setup repo running `rigger status` leaves links on the live checkout.
+- **e2e**: `TestWorktreeKeepsLiveLinks`: a `git worktree` of the live checkout, `rigger apply --yes` from inside it (`status` never relinks, so it cannot show the bug) → `~/.gitconfig` still links into the live checkout, `state.yaml` still names it, the note is printed; `TestRepoMoveRelinksWithoutBackups` still passes. One assertion added to an existing e2e: `skill install` in the machine's HOME writes both files.
 
 ## Progress Tracking
 - mark completed items with `[x]` immediately; ➕ for new tasks; ⚠️ for blockers
 
 ## Solution Overview
-- `repo.Discover` returns the remembered repo when it still holds `manifest.yaml` and the cwd candidate differs; the caller prints `using the setup repo at <remembered> (this is another checkout; pass --repo to use it)` once on stderr. Nothing relinks.
+- `repo.Discover` returns the remembered repo when it still holds `manifest.yaml` and the cwd candidate differs (both compared after `filepath.EvalSymlinks`), and names the skipped candidate. `app.Open` stores it in a new `Session.Elsewhere string`; `sessionFlags.open` in `cmd/rigger/main.go` prints `using the setup repo at <remembered> (this is another checkout; pass --repo to use it)` once to `c.err` when it is set. `app` writes nothing itself. Nothing relinks.
 - `internal/skill`: embedded `SKILL.md`, `Marker`, `Paths(home)`, `Install(home, force)`, `ForeignError`; writes with `state.WriteFileAtomic` to the symlink-resolved file path. A copy of stepwise's mechanism, not a shared module.
 - `cmd/rigger/skill.go`: `rigger skill install [--force]`, prints each path, plus the repo note when a written path resolves inside the remembered repo (both sides `EvalSymlinks`, then `filepath.Rel` without `..`).
 
@@ -82,12 +82,15 @@ $ rigger skill install
 - Modify: `internal/repo/discover.go`
 - Modify: `internal/repo/discover_test.go`
 - Modify: `internal/app/app.go`
+- Modify: `internal/app/app_test.go`
+- Modify: `cmd/rigger/main.go`
+- Modify: `cmd/rigger/main_test.go`
 - Modify: `tests/e2e_test.go`
 
 - [ ] `Discover` returns the remembered repo when it holds `manifest.yaml` and differs from the cwd candidate, and reports the skipped candidate (e.g. a second return value or a `Found{Dir, Elsewhere}`)
-- [ ] the session prints the "another checkout" line once on stderr; `prevRepo` then sees no move
-- [ ] write tests: the four discover cases in Testing Strategy
-- [ ] write e2e: a `git worktree` of the live checkout, `rigger status` from inside it → links still point at the live checkout, the note printed; README's moved-repo flow still relinks
+- [ ] `Session.Elsewhere` set by `app.Open`; `sessionFlags.open` prints the "another checkout" line once to `c.err`; `prevRepo` then sees no move
+- [ ] write tests: the discover cases in Testing Strategy (`internal/repo/discover_test.go`), `Session.Elsewhere` in `app_test.go`, the note on `c.err` in `main_test.go`
+- [ ] write e2e `TestWorktreeKeepsLiveLinks` as in Testing Strategy (`apply --yes` from the worktree); `TestRepoMoveRelinksWithoutBackups` unchanged and passing
 - [ ] run tests - must pass before task 2
 
 ### Task 2: Skill package
@@ -106,6 +109,7 @@ $ rigger skill install
 - Create: `cmd/rigger/skill.go`
 - Modify: `cmd/rigger/main.go`
 - Modify: `cmd/rigger/main_test.go`
+- Modify: `tests/e2e_test.go`
 
 - [ ] dispatch `skill`; `newFlagSet("skill install", c.err)` with `--force`; extra args and missing/unknown subcommand → usage error; usage line as in Technical Details
 - [ ] print paths with `~`; repo note by `EvalSymlinks` on both sides and `filepath.Rel` without `..`
@@ -113,19 +117,27 @@ $ rigger skill install
 - [ ] add the e2e assertion: `skill install` writes both files in the machine's HOME
 - [ ] run tests - must pass before task 4
 
-### Task 4: Verify acceptance criteria
-- [ ] rigger run inside a worktree leaves links on the live checkout
-- [ ] both agents' paths written; foreign files kept without `--force`
-- [ ] `make check`
+### Task 4: [Final] Update documentation
+**Files:**
+- Modify: `README.md`
+- Modify: `docs/setup-repo.md`
+- Modify: `CLAUDE.md`
 
-### Task 5: [Final] Update documentation
 - [ ] `README.md` "Every day": `rigger skill install   # teach Claude Code and Codex how to change your setup repo`; the moved-repo note says it applies when the old checkout is gone
-- [ ] `docs/setup-repo.md`: "Agent sessions" (what the skill says, both paths, the linked `~/.claude` case, Codex needs the command per machine, marker and `--force`); the discovery rule for other checkouts
-- [ ] `CLAUDE.md`: `skill` in the subcommand list, `internal/skill` in Layout, "Next" land order starts with this plan
-- [ ] move this plan to `docs/plans/completed/`
+- [ ] `docs/setup-repo.md`: "Agent sessions" (what the skill says, both install paths, the linked `~/.claude` case, Codex needs the command on each machine, marker and `--force`); the discovery rule for other checkouts
+- [ ] `CLAUDE.md`: `skill` in the subcommand list, `internal/skill` in Layout
+
+## Acceptance Criteria
+- Run: `go test ./internal/repo/ ./internal/app/ ./internal/skill/ ./cmd/rigger/`
+- Run: `go test ./tests/ -run 'TestWorktreeKeepsLiveLinks|TestRepoMoveRelinksWithoutBackups'`
+- Run: `make check`
+- Run: `grep -q 'rigger skill install' README.md`
+- Run: `grep -q 'Agent sessions' docs/setup-repo.md`
+- Run: `grep -q 'internal/skill' CLAUDE.md`
 
 ## Post-Completion
 *Items requiring manual intervention or external systems - no checkboxes, informational only*
 
+- Move this plan to `docs/plans/completed/`.
 - On `mba`: `rigger skill install`, then `rigger sync` commits `claude/skills/rigger/SKILL.md` to `machine-setup`; a new Claude session lists the skill, a Codex session finds it.
 - Release v0.1.2 (tag after master CI is green); `brew upgrade --cask k0nsta/apps/rigger`.
