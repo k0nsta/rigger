@@ -106,10 +106,10 @@ $ rigger skill install
 - Create: `internal/skill/skill.go`
 - Create: `internal/skill/skill_test.go`
 
-- [ ] `SKILL.md` as in Technical Details
-- [ ] `Marker`, `Paths(home)`, `Install(home, force)`, `ForeignError`; resolve an existing `SKILL.md` symlink to its target before `state.WriteFileAtomic(target, data, 0o644)`
-- [ ] write tests: the skill cases in Testing Strategy
-- [ ] run tests - must pass before task 3
+- [x] `SKILL.md` as in Technical Details
+- [x] `Marker`, `Paths(home)`, `Install(home, force)`, `ForeignError`; resolve an existing `SKILL.md` symlink to its target before `state.WriteFileAtomic(target, data, 0o644)`
+- [x] write tests: the skill cases in Testing Strategy
+- [x] run tests - must pass before task 3
 
 ### Task 3: `rigger skill install`
 **Files:**
