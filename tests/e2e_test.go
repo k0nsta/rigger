@@ -200,6 +200,15 @@ func TestWorktreeKeepsLiveLinks(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(string(out), "using the setup repo at ~/setup (this is another checkout; pass --repo to use it)"))
 }
 
+func TestSkillInstallWritesBothFiles(t *testing.T) {
+	m := newMachine(t)
+	m.rigger(true, "init", remoteFromExample(t), "--dir", filepath.Join(m.home, "setup"), "--no-run")
+
+	m.rigger(true, "skill", "install")
+	assert.FileExists(t, filepath.Join(m.home, ".claude", "skills", "rigger", "SKILL.md"))
+	assert.FileExists(t, filepath.Join(m.home, ".agents", "skills", "rigger", "SKILL.md"))
+}
+
 func TestSyncRoundTripBetweenMachines(t *testing.T) {
 	remote := remoteFromExample(t)
 	a, b := newMachine(t), newMachine(t)

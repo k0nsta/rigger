@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/k0nsta/rigger/internal/app"
+	"github.com/k0nsta/rigger/internal/skill"
+	"github.com/k0nsta/rigger/internal/state"
 	"github.com/k0nsta/rigger/internal/testutil"
 )
 
@@ -56,6 +58,66 @@ func TestValidate(t *testing.T) {
 	require.NoError(t, c.run(context.Background(), []string{"validate", "../../example"}))
 	assert.Contains(t, out.String(), "ok")
 	require.ErrorContains(t, c.run(context.Background(), []string{"validate", t.TempDir()}), "read manifest")
+}
+
+func TestSkillInstallCLI(t *testing.T) {
+	t.Run("prints tilde paths", func(t *testing.T) {
+		c, out := newCLI(t, false)
+		require.NoError(t, c.run(context.Background(), []string{"skill", "install"}))
+		assert.Equal(t, "~/.claude/skills/rigger/SKILL.md\n~/.agents/skills/rigger/SKILL.md\n", out.String())
+		for _, path := range skill.Paths(c.home) {
+			assert.FileExists(t, path)
+		}
+	})
+
+	t.Run("notes when Claude skill resolves into remembered repo", func(t *testing.T) {
+		c, out := newCLI(t, false)
+		repo := filepath.Join(c.home, "setup")
+		claude := filepath.Join(repo, ".claude")
+		require.NoError(t, os.MkdirAll(repo, 0o755))
+		require.NoError(t, os.MkdirAll(claude, 0o755))
+		require.NoError(t, os.Symlink(claude, filepath.Join(c.home, ".claude")))
+		require.NoError(t, (&state.Local{Repo: repo}).Save(state.LocalPath(c.home)))
+		require.NoError(t, c.run(context.Background(), []string{"skill", "install"}))
+		assert.Equal(t, "~/.claude/skills/rigger/SKILL.md (in your setup repo: commit it with rigger sync)\n~/.agents/skills/rigger/SKILL.md\n", out.String())
+		assert.FileExists(t, filepath.Join(claude, "skills", "rigger", "SKILL.md"))
+	})
+
+	t.Run("does not note sibling repo or unreadable state", func(t *testing.T) {
+		c, out := newCLI(t, false)
+		repo := filepath.Join(c.home, "setup")
+		sibling := filepath.Join(c.home, "setup-old")
+		claude := filepath.Join(repo, ".claude")
+		require.NoError(t, os.MkdirAll(repo, 0o755))
+		require.NoError(t, os.MkdirAll(claude, 0o755))
+		require.NoError(t, os.MkdirAll(sibling, 0o755))
+		require.NoError(t, os.Symlink(claude, filepath.Join(c.home, ".claude")))
+		require.NoError(t, (&state.Local{Repo: sibling}).Save(state.LocalPath(c.home)))
+		require.NoError(t, c.run(context.Background(), []string{"skill", "install"}))
+		assert.NotContains(t, out.String(), "in your setup repo")
+
+		c, out = newCLI(t, false)
+		require.NoError(t, os.MkdirAll(filepath.Dir(state.LocalPath(c.home)), 0o755))
+		require.NoError(t, os.WriteFile(state.LocalPath(c.home), []byte(": [invalid\n"), 0o600))
+		require.NoError(t, c.run(context.Background(), []string{"skill", "install"}))
+		assert.NotContains(t, out.String(), "in your setup repo")
+	})
+
+	t.Run("usage errors", func(t *testing.T) {
+		for _, args := range [][]string{{"skill"}, {"skill", "other"}, {"skill", "install", "extra"}} {
+			c, _ := newCLI(t, false)
+			require.EqualError(t, c.run(context.Background(), args), "usage: rigger skill install [--force]")
+		}
+	})
+
+	t.Run("foreign path is printed with tilde", func(t *testing.T) {
+		c, _ := newCLI(t, false)
+		foreignPath := skill.Paths(c.home)[0]
+		testutil.WriteFile(t, foreignPath, "user file\n")
+		err := c.run(context.Background(), []string{"skill", "install"})
+		require.ErrorContains(t, err, "~/.claude/skills/rigger/SKILL.md: differs from the skill")
+		assert.NoFileExists(t, skill.Paths(c.home)[1])
+	})
 }
 
 func TestStatusAndApply(t *testing.T) {

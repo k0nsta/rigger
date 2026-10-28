@@ -118,11 +118,11 @@ $ rigger skill install
 - Modify: `cmd/rigger/main_test.go`
 - Modify: `tests/e2e_test.go`
 
-- [ ] dispatch `skill`; `newFlagSet("skill install", c.err)` with `--force`; extra args and missing/unknown subcommand → usage error; usage line as in Technical Details
-- [ ] print paths with `~`; repo note by `EvalSymlinks` on both sides and `filepath.Rel` without `..`
-- [ ] write tests (with `newCLI`, state written via `state.LocalPath(home)`): the cli cases in Testing Strategy
-- [ ] add the e2e assertion: `skill install` writes both files in the machine's HOME
-- [ ] run tests - must pass before task 4
+- [x] dispatch `skill`; `newFlagSet("skill install", c.err)` with `--force`; extra args and missing/unknown subcommand → usage error; usage line as in Technical Details
+- [x] print paths with `~`; repo note by `EvalSymlinks` on both sides and `filepath.Rel` without `..`
+- [x] write tests (with `newCLI`, state written via `state.LocalPath(home)`): the cli cases in Testing Strategy
+- [x] add the e2e assertion: `skill install` writes both files in the machine's HOME
+- [x] run tests - must pass before task 4
 
 ### Task 4: [Final] Update documentation
 **Files:**
