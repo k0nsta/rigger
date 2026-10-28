@@ -14,7 +14,7 @@
 ## Context (from discovery)
 - `internal/repo/discover.go:17-40` `Discover(flag, env, cwd, remembered)`: flag, env, then the first parent of cwd with `manifest.yaml`, then the remembered repo. `internal/app/app.go:97,108-113` `prevRepo` makes the remembered path the "old location"; `internal/action/link.go:31-46` `movedFrom` relinks into the new root without backups; `Session.Save` (app.go:302) remembers the new path. Run from a worktree, every link moves there. The moved-repo feature (README "Moved the setup repo?") needs this path when the remembered repo is gone.
 - `cmd/rigger/main.go:22-36` usage (11-column layout), `run` dispatch; `init.go:32` returns usage as an error; `init.go:35-42` resolves an empty `c.home`.
-- stepwise's `internal/skill` (`~/Dev/stepwise`) is the pattern: embedded file, marker line, check every path before writing, `ForeignError`, `--force`. `state.WriteFileAtomic` (`internal/state/state.go:106`) already writes through a temp file.
+- stepwise's `internal/skill` on this machine (`~/stepwise/internal/skill/skill.go`, commit aadbad6) is the reference for the mechanism: embedded file, marker line, check every path before writing, `ForeignError`, `--force`. Read it; the package here is written from this plan, not copied. `state.WriteFileAtomic` (`internal/state/state.go:106`) already writes through a temp file.
 - Agent docs (checked 2026-10-28): Claude Code reads `~/.claude/skills/<name>/SKILL.md`; Codex reads `$HOME/.agents/skills` (https://learn.chatgpt.com/docs/build-skills.md); both need `name` and `description`.
 - `machine-setup` links `~/.claude` to its `claude/` (`claude-config`): the Claude copy lands in the setup repo, sync offers it, other machines get it with their next sync. `~/.agents` is not linked: Codex on another machine needs `rigger skill install` there.
 - What the skill must match: links and seeds and `adopt` for both (`docs/setup-repo.md`, app.go:476-524); a link a tool replaced with a real file (`sed -i`, atomic save; setup-repo.md "Sync"); the credential gate runs only inside `Syncer.Commit` (`internal/syncer/syncer.go`); `sync`/`apply` need a TTY or `--yes`, and `sync --yes` commits every change and skips strays (`cmd/rigger/sync.go`); secrets path follows `$XDG_CONFIG_HOME` (state.go:22-28) and `${NAME}` renders only for names in the seed's `secrets:`; every top-level dir must be used or `unmanaged`; rigger's own messages suggest `git switch`, `stash`, `pull --rebase` fixes (head.go:74-76, sync.go).
@@ -35,7 +35,7 @@
 
 ## Solution Overview
 - `repo.Discover` returns the remembered repo when it still holds `manifest.yaml` and the cwd candidate differs (both compared after `filepath.EvalSymlinks`), and names the skipped candidate. `app.Open` stores it in a new `Session.Elsewhere string`; `sessionFlags.open` in `cmd/rigger/main.go` prints `using the setup repo at <remembered> (this is another checkout; pass --repo to use it)` once to `c.err` when it is set. `app` writes nothing itself. Nothing relinks.
-- `internal/skill`: embedded `SKILL.md`, `Marker`, `Paths(home)`, `Install(home, force)`, `ForeignError`; writes with `state.WriteFileAtomic` to the symlink-resolved file path. A copy of stepwise's mechanism, not a shared module.
+- `internal/skill`: embedded `SKILL.md`, `Marker`, `Paths(home)`, `Install(home, force)`, `ForeignError`; writes with `state.WriteFileAtomic` to the symlink-resolved file path. Same mechanism as stepwise's `Install`/`checkOwn`/`hasMarker`/`writeFile`, written here, not a shared module: `Install` first checks every path (a file without the marker is foreign → `ForeignError` naming it, nothing written unless `force`), then writes each.
 - `cmd/rigger/skill.go`: `rigger skill install [--force]`, prints each path, plus the repo note when a written path resolves inside the remembered repo (both sides `EvalSymlinks`, then `filepath.Rel` without `..`).
 
 ## Technical Details
@@ -138,6 +138,7 @@ $ rigger skill install
 ## Post-Completion
 *Items requiring manual intervention or external systems - no checkboxes, informational only*
 
+- macOS: the Mac rigger session fetches the branch, runs `make check` and `rigger skill install` plus a worktree `apply --yes` on the Mac, and reports back over the agent bus (`/var` → `/private/var` is the macOS-only case).
 - Move this plan to `docs/plans/completed/`.
 - On `mba`: `rigger skill install`, then `rigger sync` commits `claude/skills/rigger/SKILL.md` to `machine-setup`; a new Claude session lists the skill, a Codex session finds it.
 - Release v0.1.2 (tag after master CI is green); `brew upgrade --cask k0nsta/apps/rigger`.
