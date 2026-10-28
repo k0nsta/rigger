@@ -35,6 +35,12 @@ make build    # bin/rigger
 
 Land order of plans: `20261027-sync-tui` (v0.2.0) → `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`.
 
+## Delivery board
+
+Tracker: github — project https://github.com/users/k0nsta/projects/4, repo k0nsta/rigger (the `delivery-board` skill)
+Versions: 0.1 shipped #18, 0.1.2 #19, 0.2.0 #20
+Plans: release-check #21 (done), skill-install #22 (0.1.2), sync-tui #23 (0.2.0); no version yet: app-checklist #24, vault-and-machine-keys #25, background-sync #26, host-vars #27
+
 ## Releases
 
 - Tag `vX.Y.Z` on master after CI is green; `.github/workflows/release.yml` runs GoReleaser: darwin/linux × arm64/amd64, `install.sh` on the release, cask in `k0nsta/homebrew-apps` (needs the `HOMEBREW_TAP_GITHUB_TOKEN` repo secret, a fine-grained token with Contents write on that tap only).
