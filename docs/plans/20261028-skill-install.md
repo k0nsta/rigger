@@ -34,7 +34,7 @@
 - mark completed items with `[x]` immediately; ➕ for new tasks; ⚠️ for blockers
 
 ## Solution Overview
-- `repo.Discover` returns the remembered repo when it still holds `manifest.yaml` and the cwd candidate differs (both compared after `filepath.EvalSymlinks`), and names the skipped candidate. `app.Open` stores it in a new `Session.Elsewhere string`. A new `(c *cli) noteElsewhere(s *app.Session)` in `cmd/rigger/main.go` prints `using the setup repo at <remembered> (this is another checkout; pass --repo to use it)` to `c.err` when it is set; each command calls it once, right after its first session open: `apply.go:35`, `status.go:29`, `sync.go:36` (not the reopen after the pull at `sync.go:83`), `tui.go:18` (the interactive installer, which also relinks) and `adopt.go:31`. `sessionFlags.open` keeps its signature; `app` writes nothing itself. Nothing relinks.
+- `repo.Discover` returns the remembered repo when it still holds `manifest.yaml` and the cwd candidate differs (both compared after `filepath.EvalSymlinks`), and names the skipped candidate. `app.Open` stores it in a new `Session.Elsewhere string`. A new `(c *cli) noteElsewhere(s *app.Session)` in `cmd/rigger/main.go` prints `using the setup repo at <remembered> (this is another checkout; pass --repo to use it)` to `c.err` when it is set; each command calls it once, right after its first session open: `apply.go:35`, `status.go:29`, `sync.go:36` (not the reopen after the pull at `sync.go:83`), `tui.go:18` (the interactive installer, which also relinks), `adopt.go:31` and `remote.go:30`. `sessionFlags.open` keeps its signature; `app` writes nothing itself. Nothing relinks.
 - `internal/skill`: embedded `SKILL.md`, `Marker`, `Paths(home)`, `Install(home, force)`, `ForeignError`; writes with `state.WriteFileAtomic` to the symlink-resolved file path. Same mechanism as stepwise's `Install`/`checkOwn`/`hasMarker`/`writeFile`, written here, not a shared module: `Install` first checks every path (a file without the marker is foreign → `ForeignError` naming it, nothing written unless `force`), then writes each.
 - `cmd/rigger/skill.go`: `rigger skill install [--force]`, prints each path, plus the repo note when a written path resolves inside the remembered repo (both sides `EvalSymlinks`, then `filepath.Rel` without `..`).
 
@@ -89,12 +89,13 @@ $ rigger skill install
 - Modify: `cmd/rigger/sync.go`
 - Modify: `cmd/rigger/tui.go`
 - Modify: `cmd/rigger/adopt.go`
+- Modify: `cmd/rigger/remote.go`
 - Modify: `cmd/rigger/main_test.go`
 - Modify: `cmd/rigger/sync_test.go`
 - Modify: `tests/e2e_test.go`
 
 - [ ] `Discover` returns the remembered repo when it holds `manifest.yaml` and differs from the cwd candidate, and reports the skipped candidate (e.g. a second return value or a `Found{Dir, Elsewhere}`)
-- [ ] `Session.Elsewhere` set by `app.Open`; `c.noteElsewhere` called after the first open in `apply`, `status`, `sync`, the TUI and `adopt`; `prevRepo` then sees no move
+- [ ] `Session.Elsewhere` set by `app.Open`; `c.noteElsewhere` called after the first open in `apply`, `status`, `sync`, the TUI, `adopt` and `remote`; `prevRepo` then sees no move
 - [ ] write tests: the discover cases in Testing Strategy (`internal/repo/discover_test.go`), `Session.Elsewhere` in `app_test.go`, the note on `c.err` in `main_test.go`, and in `sync_test.go` a sync run from another checkout prints the note exactly once
 - [ ] write e2e `TestWorktreeKeepsLiveLinks` as in Testing Strategy (`apply --yes` from the worktree); `TestRepoMoveRelinksWithoutBackups` unchanged and passing
 - [ ] run tests - must pass before task 2
