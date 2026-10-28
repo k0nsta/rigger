@@ -130,9 +130,9 @@ $ rigger skill install
 - Modify: `docs/setup-repo.md`
 - Modify: `CLAUDE.md`
 
-- [ ] `README.md` "Every day": `rigger skill install   # teach Claude Code and Codex how to change your setup repo`; the moved-repo note says it applies when the old checkout is gone
-- [ ] `docs/setup-repo.md`: "Agent sessions" (what the skill says, both install paths, the case where the Claude skills folder is itself linked into the setup repo, Codex needs the command on each machine, marker and `--force`); the discovery rule for other checkouts
-- [ ] `CLAUDE.md`: `skill` in the subcommand list, `internal/skill` in Layout
+- [x] `README.md` "Every day": `rigger skill install   # teach Claude Code and Codex how to change your setup repo`; the moved-repo note says it applies when the old checkout is gone
+- [x] `docs/setup-repo.md`: "Agent sessions" (what the skill says, both install paths, the case where the Claude skills folder is itself linked into the setup repo, Codex needs the command on each machine, marker and `--force`); the discovery rule for other checkouts
+- [x] `CLAUDE.md`: `skill` in the subcommand list, `internal/skill` in Layout
 
 ## Acceptance Criteria
 - Run: `go test ./internal/repo/ ./internal/app/ ./internal/skill/ ./cmd/rigger/`

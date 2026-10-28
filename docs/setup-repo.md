@@ -120,6 +120,16 @@ full list is still read.
 | `~/.config/rigger/secrets.env` | `KEY=value` (0600); a value may be `op://vault/item/field` (1Password CLI) |
 | `~/.local/state/rigger/backups/` | everything rigger replaced |
 
+## Agent sessions
+
+Run `rigger skill install` on each machine to install the rigger skill for Claude Code and Codex. It tells agents to edit the live setup repo files rather than linked files under `~`, preserve uncommitted work, use a worktree for feature work, validate manifest changes, and leave commits to `rigger sync` unless asked.
+
+The command writes `SKILL.md` to `~/.claude/skills/rigger/` and `~/.agents/skills/rigger/`. If `~/.claude` or its `skills` directory is linked into the setup repo, the Claude skill is written into that repo and can be shared by committing it with `rigger sync`. The Codex path is not linked by the usual setup, so run the command on every machine where Codex should have the skill.
+
+Rigger marks its file with `<!-- rigger: skill -->`. It updates a marked file on a later install. If either destination already contains an unmarked file, installation stops without changing either file; use `rigger skill install --force` to replace it.
+
+When rigger finds a `manifest.yaml` in the current directory or a parent, it uses that checkout only if no remembered setup repo is available. If the remembered repo still exists, rigger keeps using it and reports that the current directory is another checkout. Pass `--repo DIR` or set `$RIGGER_REPO` to choose a different repo explicitly. If the remembered checkout is gone, running rigger from the moved repo's new location makes it the remembered repo.
+
 ## Taking local edits back
 
 `rigger adopt <path>` copies a live file into the repo:

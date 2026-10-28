@@ -104,6 +104,7 @@ rigger sync            # commit your changes, pull other machines', re-apply, pu
 rigger adopt <path>    # take a live edit back into the repo
 rigger remote myvps    # install rigger on an ssh host, clone the repo there, run the TUI
 rigger validate .      # check a setup repo (use it in the repo's CI)
+rigger skill install   # teach Claude Code and Codex how to change your setup repo
 ```
 
 | Flag | Does |
@@ -124,7 +125,7 @@ rigger validate .      # check a setup repo (use it in the repo's CI)
 | track a new config file | copy it into the repo, add a `links` entry to `manifest.yaml`, `rigger apply` |
 | fix a config that stopped syncing | an editor or `sed -i` replaced the link with a file: `rigger adopt <path>` |
 | sort out a sync conflict | rigger aborts the pull and prints the git commands to resolve it; then `rigger sync` again |
-| move the setup repo | run rigger once from its new directory; it relinks without backups |
+| move the setup repo | when the old checkout is gone, run rigger once from the new directory; it relinks without backups |
 | stop using rigger | replace each link with a copy of its file: `cp -L ~/.zshrc ~/.zshrc.tmp && mv ~/.zshrc.tmp ~/.zshrc` |
 
 Anything rigger replaces is backed up to `~/.local/state/rigger/backups/<time>/`; run logs are
