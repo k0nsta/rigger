@@ -77,6 +77,39 @@ func TestCommitPushPullAcrossMachines(t *testing.T) {
 	assert.FileExists(t, filepath.Join(b.Repo, "hosts", "a.yaml"))
 }
 
+func TestCommitTakesStagedChangesAsTheyAre(t *testing.T) {
+	ctx := context.Background()
+	a, _ := machines(t)
+	for name, body := range map[string]string{"scripts/old.sh": "old\n", "scripts/ren.sh": "ren\n", "mm.txt": "base\n", "other.txt": "other\n"} {
+		testutil.WriteFile(t, filepath.Join(a.Repo, name), body)
+	}
+	git(t, a.Repo, "add", ".")
+	git(t, a.Repo, "commit", "-q", "-m", "files")
+
+	// another session staged a delete, a rename and half an edit, plus a change sync is not given
+	git(t, a.Repo, "rm", "-q", "scripts/old.sh")
+	git(t, a.Repo, "mv", "scripts/ren.sh", "scripts/renamed.sh")
+	testutil.WriteFile(t, filepath.Join(a.Repo, "mm.txt"), "base\nstaged\n")
+	git(t, a.Repo, "add", "mm.txt")
+	testutil.WriteFile(t, filepath.Join(a.Repo, "mm.txt"), "base\nstaged\nunstaged\n")
+	testutil.WriteFile(t, filepath.Join(a.Repo, "other.txt"), "other, staged\n")
+	git(t, a.Repo, "add", "other.txt")
+
+	changes, err := a.Changes(ctx)
+	require.NoError(t, err)
+	assert.Contains(t, changes, Change{Path: "scripts/renamed.sh", Code: "R ", From: "scripts/ren.sh"})
+
+	require.NoError(t, a.Commit(ctx, "a", []string{"scripts/old.sh", "scripts/renamed.sh", "mm.txt"}))
+
+	committed := git(t, a.Repo, "show", "--name-status", "--format=", "HEAD")
+	assert.Contains(t, committed, "D\tscripts/old.sh")
+	assert.Contains(t, committed, "R100\tscripts/ren.sh\tscripts/renamed.sh")
+	assert.Contains(t, committed, "M\tmm.txt")
+	assert.NotContains(t, committed, "other.txt", "a staged change sync was not given stays out")
+	assert.Equal(t, "base\nstaged\nunstaged\n", git(t, a.Repo, "show", "HEAD:mm.txt"), "the file as it is in the worktree")
+	assert.Equal(t, "M  other.txt\n", git(t, a.Repo, "status", "--porcelain=v1"), "and it is still staged")
+}
+
 func TestPullConflictAborts(t *testing.T) {
 	ctx := context.Background()
 	a, b := machines(t)
