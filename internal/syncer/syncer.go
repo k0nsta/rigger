@@ -24,7 +24,13 @@ type Change struct {
 	Path string
 	// Code is git's two-letter porcelain status, e.g. " M", "??".
 	Code string
+	// From is a rename's or copy's original path.
+	From string
 }
+
+// staged reports whether the change is all in the index already (e.g. a `git rm`, "D "),
+// so there is nothing in the worktree to stage.
+func (c Change) staged() bool { return c.Code[0] != ' ' && c.Code[0] != '?' && c.Code[1] == ' ' }
 
 // Syncer runs git in the setup repo.
 type Syncer struct {
@@ -90,11 +96,12 @@ func (s *Syncer) Changes(ctx context.Context) ([]Change, error) {
 		if len(e) < 4 {
 			continue
 		}
-		code, path := e[:2], e[3:]
-		if code[0] == 'R' || code[0] == 'C' {
+		ch := Change{Path: e[3:], Code: e[:2]}
+		if (ch.Code[0] == 'R' || ch.Code[0] == 'C') && i+1 < len(entries) {
 			i++ // the original path of a rename follows
+			ch.From = entries[i]
 		}
-		changes = append(changes, Change{Path: path, Code: code})
+		changes = append(changes, ch)
 	}
 	return changes, nil
 }
@@ -108,21 +115,48 @@ var credentialContent = regexp.MustCompile(`(?m)oauth_token:\s*\S+|-----BEGIN [A
 // ErrLeak means the gate found a credential in the staged files.
 var ErrLeak = errors.New("possible credential staged")
 
-// Commit stages exactly files, runs the credential gate and commits. On a gate hit the files
-// are unstaged again and nothing is committed.
+// Commit commits exactly files, as they are in the worktree, after the credential gate. A change
+// already staged (a `git rm`, a `git mv`) is committed as staged; a staged change that is not in
+// files stays staged and out of the commit. On a gate hit what Commit staged is unstaged again
+// and nothing is committed.
 func (s *Syncer) Commit(ctx context.Context, host string, files []string) error {
 	if len(files) == 0 {
 		return nil
 	}
-	if _, err := s.mustGit(ctx, append([]string{"add", "--"}, files...)...); err != nil {
+	changes, err := s.Changes(ctx)
+	if err != nil {
 		return err
 	}
+	byPath := map[string]Change{}
+	for _, c := range changes {
+		byPath[c.Path] = c
+	}
+	var add []string
+	commit := append([]string{}, files...)
+	for _, f := range files {
+		c, ok := byPath[f]
+		if c.From != "" {
+			commit = append(commit, c.From) // a rename commits its old path's removal too
+		}
+		// `git add` of a staged deletion matches nothing in the worktree or the index and fails
+		if !ok || !c.staged() {
+			add = append(add, f)
+		}
+	}
+	if len(add) > 0 {
+		if _, err := s.mustGit(ctx, append([]string{"add", "-A", "--"}, add...)...); err != nil {
+			return err
+		}
+	}
 	if err := s.gate(ctx, files); err != nil {
-		_, _ = s.git(ctx, append([]string{"reset", "-q", "--"}, files...)...)
+		if len(add) > 0 {
+			_, _ = s.git(ctx, append([]string{"reset", "-q", "--"}, add...)...)
+		}
 		return err
 	}
 	msg := fmt.Sprintf("sync(%s): %s", host, summarize(files))
-	_, err := s.mustGit(ctx, "commit", "-q", "-m", msg)
+	// with paths, commit takes only them: other staged changes stay staged
+	_, err = s.mustGit(ctx, append([]string{"commit", "-q", "-m", msg, "--"}, commit...)...)
 	return err
 }
 
