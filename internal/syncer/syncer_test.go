@@ -131,26 +131,41 @@ func TestPullConflictAborts(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(b.Repo, ".git", "rebase-merge"))
 }
 
-func TestPullStopsOnUncommittedChanges(t *testing.T) {
+func TestPullKeepsEditsLeftOutOfTheCommit(t *testing.T) {
 	ctx := context.Background()
 	a, b := machines(t)
 	testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "a edit\n")
 	require.NoError(t, a.Commit(ctx, "a", []string{"zsh/.zshrc"}))
 	require.NoError(t, a.Push(ctx))
 
-	// an untracked file does not stop the pull
-	testutil.WriteFile(t, filepath.Join(b.Repo, "scratch.txt"), "new\n")
+	// b changed a file the remote did not touch and left it out of its commit: the pull sets
+	// it aside, rebases and puts it back
+	testutil.WriteFile(t, filepath.Join(b.Repo, "manifest.yaml"), "version: 1\n# b, not committed\n")
+	testutil.WriteFile(t, filepath.Join(b.Repo, "scratch.txt"), "untracked\n")
 	require.NoError(t, b.Pull(ctx))
+	assert.Equal(t, "a edit\n", testutil.ReadFile(t, filepath.Join(b.Repo, "zsh", ".zshrc")), "the remote change arrived")
+	assert.Equal(t, "version: 1\n# b, not committed\n", testutil.ReadFile(t, filepath.Join(b.Repo, "manifest.yaml")), "the edit is back, uncommitted")
+	assert.Contains(t, git(t, b.Repo, "status", "--porcelain"), " M manifest.yaml")
+	assert.Empty(t, git(t, b.Repo, "stash", "list"), "nothing left in the stash")
+}
 
-	// a tracked file left out of the sync commit does
+func TestPullStopsWhenTheRemoteChangedALeftOutFile(t *testing.T) {
+	ctx := context.Background()
+	a, b := machines(t)
+	testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "a edit\n")
+	require.NoError(t, a.Commit(ctx, "a", []string{"zsh/.zshrc"}))
+	require.NoError(t, a.Push(ctx))
+
 	testutil.WriteFile(t, filepath.Join(b.Repo, "zsh", ".zshrc"), "b edit, not committed\n")
+	testutil.WriteFile(t, filepath.Join(b.Repo, "manifest.yaml"), "version: 1\n# b, not committed\n")
+	head := git(t, b.Repo, "rev-parse", "HEAD")
 	err := b.Pull(ctx)
 	require.ErrorIs(t, err, ErrUncommitted)
 	var uncommitted *UncommittedError
 	require.ErrorAs(t, err, &uncommitted)
-	assert.Equal(t, []string{"zsh/.zshrc"}, uncommitted.Files)
-	assert.Contains(t, err.Error(), "1 local change(s) were not committed (zsh/.zshrc)")
-	assert.NotContains(t, err.Error(), "cannot pull with rebase", "not git's own message")
+	assert.Equal(t, []string{"zsh/.zshrc"}, uncommitted.Files, "only the file both sides changed")
+	assert.Contains(t, err.Error(), "1 file(s) you left out of the commit changed on the remote too (zsh/.zshrc)")
+	assert.Equal(t, head, git(t, b.Repo, "rev-parse", "HEAD"), "nothing rebased")
 	assert.Equal(t, "b edit, not committed\n", testutil.ReadFile(t, filepath.Join(b.Repo, "zsh", ".zshrc")), "the edit is untouched")
 }
 

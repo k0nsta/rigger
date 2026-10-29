@@ -73,7 +73,7 @@ func (c *cli) sync(ctx context.Context, args []string) error {
 			return fmt.Errorf("%w\nresolve it by hand:\n%s", err, conflictFix(sh.Tilde(s.Home, s.Repo)))
 		}
 		if errors.Is(err, syncer.ErrUncommitted) {
-			return fmt.Errorf("%w\n  run rigger sync again and commit them, or set them aside: git -C %s stash, rigger sync, git -C %s stash pop",
+			return fmt.Errorf("%w\n  commit them in this sync (run rigger sync again and pick them), or set them aside: git -C %s stash, rigger sync, git -C %s stash pop",
 				err, sh.Tilde(s.Home, s.Repo), sh.Tilde(s.Home, s.Repo))
 		}
 		return err
