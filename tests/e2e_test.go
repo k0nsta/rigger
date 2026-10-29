@@ -194,6 +194,9 @@ func TestWorktreeKeepsLiveLinks(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "rigger apply from worktree: %s", out)
 	assert.Equal(t, liveTarget, testutil.Readlink(t, link))
+	// the binary ran without XDG_CONFIG_HOME (m.env drops it); read the state where it wrote it,
+	// not where this process's XDG_CONFIG_HOME (set on CI runners) points
+	t.Setenv("XDG_CONFIG_HOME", "")
 	local, err := state.LoadLocal(state.LocalPath(m.home))
 	require.NoError(t, err)
 	assert.Equal(t, repo, local.Repo)
