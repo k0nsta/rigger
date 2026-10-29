@@ -37,7 +37,7 @@ Land order of plans: `20261027-sync-tui` (v0.2.0) → `20261008-app-checklist` �
 
 ## Delivery board
 
-Tracker: github — project https://github.com/users/k0nsta/projects/4, repo k0nsta/rigger (the `delivery-board` skill)
+Tracker: github — project https://github.com/users/k0nsta/projects/8 (Portfolio, shared by every repo; filter by Repository), repo k0nsta/rigger (the `delivery-board` skill)
 Versions: 0.1 shipped #18, 0.1.2 #19, 0.2.0 #20
 Plans: release-check #21 (done), skill-install #22 (0.1.2), sync-tui #23 (0.2.0); no version yet: app-checklist #24, vault-and-machine-keys #25, background-sync #26, host-vars #27
 
