@@ -188,14 +188,36 @@ func TestSyncFromAnotherCheckoutNotesRememberedRepoOnce(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(out.String(), note))
 }
 
-func TestSyncSaysWhatToDoWithUncommittedChanges(t *testing.T) {
-	repo, _ := syncRepo(t)
+func TestSyncCommitsOneChangeAndKeepsTheOther(t *testing.T) {
+	repo, remote := syncRepo(t)
+	testutil.WriteFile(t, filepath.Join(repo, "git", ".gitconfig"), "# git, edited\n")
+	testutil.WriteFile(t, filepath.Join(repo, "zsh", ".zshrc"), "# zsh, edited\n")
+	c, out := newCLI(t, true)
+	// commit [1] git/.gitconfig only, apply nothing
+	c.in = strings.NewReader("1\nnone\n")
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--repo", repo, "--host", "box"}))
+
+	assert.Contains(t, out.String(), "committed 1 file(s)")
+	assert.Equal(t, "# git, edited\n", gitT(t, remote, "show", "main:git/.gitconfig"), "the picked change is pushed")
+	assert.Equal(t, "# zsh, edited\n", testutil.ReadFile(t, filepath.Join(repo, "zsh", ".zshrc")), "the other edit stays")
+	assert.Contains(t, gitT(t, repo, "status", "--porcelain"), " M zsh/.zshrc", "and stays uncommitted")
+}
+
+func TestSyncStopsWhenALeftOutFileChangedOnTheRemote(t *testing.T) {
+	repo, remote := syncRepo(t)
+	other := filepath.Join(t.TempDir(), "other")
+	gitT(t, "", "clone", "-q", remote, other)
+	testutil.WriteFile(t, filepath.Join(other, "zsh", ".zshrc"), "# zsh, from another machine\n")
+	gitT(t, other, "-c", "user.name=o", "-c", "user.email=o@o", "commit", "-qam", "other")
+	gitT(t, other, "push", "-q", "origin", "main")
+
 	testutil.WriteFile(t, filepath.Join(repo, "zsh", ".zshrc"), "# zsh, edited\n")
 	c, _ := newCLI(t, true)
 	c.in = strings.NewReader("none\n")
 	err := c.run(context.Background(), []string{"sync", "--repo", repo, "--host", "box"})
-	require.ErrorContains(t, err, "1 local change(s) were not committed (zsh/.zshrc): sync pulls with rebase, which needs them committed or stashed")
-	assert.Contains(t, err.Error(), "run rigger sync again and commit them, or set them aside: git -C "+repo+" stash, rigger sync, git -C "+repo+" stash pop")
+	require.ErrorContains(t, err, "1 file(s) you left out of the commit changed on the remote too (zsh/.zshrc)")
+	assert.Contains(t, err.Error(), "commit them in this sync (run rigger sync again and pick them), or set them aside: git -C "+repo+" stash, rigger sync, git -C "+repo+" stash pop")
+	assert.Equal(t, "# zsh, edited\n", testutil.ReadFile(t, filepath.Join(repo, "zsh", ".zshrc")))
 }
 
 func TestConflictFix(t *testing.T) {
