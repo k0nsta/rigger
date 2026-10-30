@@ -14,6 +14,7 @@ import (
 
 	"github.com/k0nsta/rigger/internal/app"
 	"github.com/k0nsta/rigger/internal/manifest"
+	"github.com/k0nsta/rigger/internal/sh"
 )
 
 // version is set by goreleaser.
@@ -30,6 +31,7 @@ commands:
   sync       commit local changes, pull other machines', re-apply, push (--yes, --no-push)
   adopt P    take a live seeded or linked file back into the repo (secrets become ${VAR})
   remote H   set up ssh host H: install rigger, clone the repo there, run the installer (--profile, --binary)
+  skill      install the agent skill for Claude Code and Codex (install, --force)
   validate   check a setup repo's manifest.yaml
   version    print the version
 
@@ -95,6 +97,8 @@ func (c *cli) run(ctx context.Context, args []string) error {
 		return c.remote(ctx, args[1:])
 	case "adopt":
 		return c.adopt(ctx, args[1:])
+	case "skill":
+		return c.skill(args[1:])
 	case "help", "-h", "--help":
 		_, err := fmt.Fprintln(c.out, usage)
 		return err
@@ -142,6 +146,12 @@ func (f *sessionFlags) open(home string) (*app.Session, app.Selection, error) {
 		err = fmt.Errorf("%w (one of: %s)", err, strings.Join(s.Profiles(), ", "))
 	}
 	return s, sel, err
+}
+
+func (c *cli) noteElsewhere(s *app.Session) {
+	if s.Elsewhere != "" {
+		fmt.Fprintf(c.err, "using the setup repo at %s (this is another checkout; pass --repo to use it)\n", sh.Tilde(s.Home, s.Repo))
+	}
 }
 
 func newFlagSet(name string, out io.Writer) *flag.FlagSet {

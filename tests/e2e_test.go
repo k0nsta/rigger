@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/k0nsta/rigger/internal/state"
 	"github.com/k0nsta/rigger/internal/testutil"
 )
 
@@ -174,6 +175,41 @@ func TestRepoMoveRelinksWithoutBackups(t *testing.T) {
 	// the new location is remembered
 	out = m.rigger(true, "apply", "--yes")
 	assert.Contains(t, out, "nothing to do")
+}
+
+func TestWorktreeKeepsLiveLinks(t *testing.T) {
+	m := newMachine(t)
+	repo := filepath.Join(m.home, "setup")
+	m.rigger(true, "init", remoteFromExample(t), "--dir", repo, "--no-run")
+	m.rigger(true, "apply", "--yes", "--only", "git", "--host", "box")
+	link := filepath.Join(m.home, ".gitconfig")
+	liveTarget := filepath.Join(repo, "git", ".gitconfig")
+	assert.Equal(t, liveTarget, testutil.Readlink(t, link))
+
+	worktree := filepath.Join(m.home, "setup-feature")
+	gitIn(t, repo, "worktree", "add", "-q", "-b", "feature", worktree)
+	cmd := exec.Command(binary, "apply", "--yes")
+	cmd.Dir = worktree
+	cmd.Env = m.env()
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "rigger apply from worktree: %s", out)
+	assert.Equal(t, liveTarget, testutil.Readlink(t, link))
+	// the binary ran without XDG_CONFIG_HOME (m.env drops it); read the state where it wrote it,
+	// not where this process's XDG_CONFIG_HOME (set on CI runners) points
+	t.Setenv("XDG_CONFIG_HOME", "")
+	local, err := state.LoadLocal(state.LocalPath(m.home))
+	require.NoError(t, err)
+	assert.Equal(t, repo, local.Repo)
+	assert.Equal(t, 1, strings.Count(string(out), "using the setup repo at ~/setup (this is another checkout; pass --repo to use it)"))
+}
+
+func TestSkillInstallWritesBothFiles(t *testing.T) {
+	m := newMachine(t)
+	m.rigger(true, "init", remoteFromExample(t), "--dir", filepath.Join(m.home, "setup"), "--no-run")
+
+	m.rigger(true, "skill", "install")
+	assert.FileExists(t, filepath.Join(m.home, ".claude", "skills", "rigger", "SKILL.md"))
+	assert.FileExists(t, filepath.Join(m.home, ".agents", "skills", "rigger", "SKILL.md"))
 }
 
 func TestSyncRoundTripBetweenMachines(t *testing.T) {

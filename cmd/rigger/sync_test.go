@@ -16,6 +16,7 @@ import (
 	"github.com/k0nsta/rigger/internal/app"
 	"github.com/k0nsta/rigger/internal/engine"
 	"github.com/k0nsta/rigger/internal/manifest"
+	"github.com/k0nsta/rigger/internal/state"
 	"github.com/k0nsta/rigger/internal/testutil"
 )
 
@@ -172,6 +173,19 @@ func TestSyncAppliesPickedAndDropsFromHost(t *testing.T) {
 	assert.Equal(t, filepath.Join(repo, "git", ".gitconfig"), testutil.Readlink(t, filepath.Join(c.home, ".gitconfig")))
 	assert.NoFileExists(t, filepath.Join(c.home, ".zshrc"))
 	assert.Equal(t, "profile: laptop\nremove:\n    - zsh\n", gitT(t, remote, "show", "main:hosts/box.yaml"), "the drop is committed and pushed")
+}
+
+func TestSyncFromAnotherCheckoutNotesRememberedRepoOnce(t *testing.T) {
+	repo, _ := syncRepo(t)
+	worktree := filepath.Join(t.TempDir(), "worktree")
+	gitT(t, repo, "worktree", "add", "-q", "-b", "feature", worktree)
+	c, out := newCLI(t, true)
+	l := &state.Local{Repo: repo, Host: "box"}
+	require.NoError(t, l.Save(state.LocalPath(c.home)))
+	t.Chdir(worktree)
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--yes", "--no-push", "--host", "box"}))
+	note := "using the setup repo at " + repo + " (this is another checkout; pass --repo to use it)"
+	assert.Equal(t, 1, strings.Count(out.String(), note))
 }
 
 func TestSyncCommitsOneChangeAndKeepsTheOther(t *testing.T) {

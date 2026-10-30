@@ -72,6 +72,20 @@ func TestHostFileStoresOnlyTheDifference(t *testing.T) {
 	assert.Equal(t, map[string]bool{"fx": true}, again.Exclude)
 }
 
+func TestOpenRemembersRepoWhenCwdIsAnotherCheckout(t *testing.T) {
+	remembered := testutil.Tree(t, map[string]string{"manifest.yaml": deltaManifest})
+	other := testutil.Tree(t, map[string]string{"manifest.yaml": deltaManifest})
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	l := &state.Local{Repo: remembered, Host: "box"}
+	require.NoError(t, l.Save(state.LocalPath(home)))
+	s, err := Open(Options{Home: home, Cwd: other})
+	require.NoError(t, err)
+	assert.Equal(t, remembered, s.Repo)
+	assert.Equal(t, other, s.Elsewhere)
+	assert.Empty(t, s.Engine.Env.PrevRepo, "using the remembered checkout is not a repo move")
+}
+
 func TestProfileAdditionsReachSavedHosts(t *testing.T) {
 	s := open(t, deltaManifest)
 	sel, err := s.Select("laptop", nil)
