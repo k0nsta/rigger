@@ -231,17 +231,17 @@ func (e *ConflictError) Error() string {
 // Unwrap lets errors.Is match ErrConflict.
 func (e *ConflictError) Unwrap() error { return ErrConflict }
 
-// ErrUncommitted means tracked files have changes that were not committed, so pull --rebase
-// cannot run.
+// ErrUncommitted means tracked files have changes that were not committed and the remote
+// changed the same files, so the pull cannot set them aside and put them back safely.
 var ErrUncommitted = errors.New("local changes were not committed")
 
-// UncommittedError names the tracked files with changes left out of the sync commit.
+// UncommittedError names the files left out of the sync commit that the remote changed too.
 type UncommittedError struct {
 	Files []string
 }
 
 func (e *UncommittedError) Error() string {
-	return fmt.Sprintf("%d local change(s) were not committed (%s): sync pulls with rebase, which needs them committed or stashed",
+	return fmt.Sprintf("%d file(s) you left out of the commit changed on the remote too (%s): sync stops so your edit and the other machine's never mix",
 		len(e.Files), strings.Join(e.Files, ", "))
 }
 
@@ -249,17 +249,26 @@ func (e *UncommittedError) Error() string {
 func (e *UncommittedError) Unwrap() error { return ErrUncommitted }
 
 // Pull rebases local commits onto the remote; a conflict is aborted so live linked configs
-// never see conflict markers. Changed tracked files stop it before git does: an autostash could
-// leave conflict markers in a live config when it is popped.
+// never see conflict markers. Tracked changes left out of the commit are set aside and put
+// back (autostash) only when the remote did not change those files, so putting them back
+// cannot conflict; otherwise the pull stops before touching anything.
 func (s *Syncer) Pull(ctx context.Context) error {
 	out, err := s.mustGit(ctx, "diff", "--name-only", "HEAD")
 	if err != nil {
 		return err
 	}
-	if files := sh.Lines(out); len(files) > 0 {
-		return &UncommittedError{Files: files}
+	stash := "--no-autostash"
+	if dirty := sh.Lines(out); len(dirty) > 0 {
+		both, err := s.changedUpstream(ctx, dirty)
+		if err != nil {
+			return err
+		}
+		if len(both) > 0 {
+			return &UncommittedError{Files: both}
+		}
+		stash = "--autostash"
 	}
-	res, err := s.netGit(ctx, "pull", "--rebase", "--no-autostash")
+	res, err := s.netGit(ctx, "pull", "--rebase", stash)
 	if err != nil {
 		return err
 	}
@@ -278,6 +287,33 @@ func (s *Syncer) Pull(ctx context.Context) error {
 		return &ConflictError{Files: files}
 	}
 	return fmt.Errorf("git pull failed: %s", lastLines(res.Output, 4))
+}
+
+// changedUpstream fetches and returns the files of dirty that the upstream changed since the
+// common ancestor with HEAD.
+func (s *Syncer) changedUpstream(ctx context.Context, dirty []string) ([]string, error) {
+	res, err := s.netGit(ctx, "fetch", "-q")
+	if err != nil {
+		return nil, err
+	}
+	if res.Code != 0 {
+		return nil, fmt.Errorf("git fetch failed: %s", lastLines(res.Output, 4))
+	}
+	out, err := s.mustGit(ctx, "diff", "--name-only", "HEAD...@{u}")
+	if err != nil {
+		return nil, err
+	}
+	remote := map[string]bool{}
+	for _, f := range sh.Lines(out) {
+		remote[f] = true
+	}
+	var both []string
+	for _, f := range dirty {
+		if remote[f] {
+			both = append(both, f)
+		}
+	}
+	return both, nil
 }
 
 // Push publishes local commits.
