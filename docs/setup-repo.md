@@ -10,7 +10,7 @@ zsh/.zshrc
 scripts/install-x.sh
 ```
 
-Check it any time: `rigger validate path/to/repo` (also runs on every load).
+Check it any time: `rigger validate` checks the checkout you are in, or the remembered repo from anywhere else; `rigger validate DIR` or `--repo DIR` names one (also runs on every load).
 
 ## manifest.yaml
 

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/k0nsta/rigger/internal/app"
+	"github.com/k0nsta/rigger/internal/repo"
 	"github.com/k0nsta/rigger/internal/skill"
 	"github.com/k0nsta/rigger/internal/state"
 	"github.com/k0nsta/rigger/internal/testutil"
@@ -226,6 +227,48 @@ func TestInitRefusesACheckoutWithoutManifest(t *testing.T) {
 	require.NoError(t, cmd.Run())
 	require.NoError(t, c.run(context.Background(), []string{"init", bare, "--dir", dir, "--no-run"}))
 	assert.FileExists(t, filepath.Join(dir, "manifest.yaml"))
+}
+
+func TestValidateFindsTheRepo(t *testing.T) {
+	two := "version: 1\ngroups: [g]\ncomponents:\n  - {id: a, group: g, apt: [x]}\n  - {id: b, group: g, apt: [x]}\n"
+	one := "version: 1\ngroups: [g]\nunmanaged: [sub]\ncomponents:\n  - {id: a, group: g, apt: [x]}\n"
+	remembered := testutil.Tree(t, map[string]string{"manifest.yaml": two})
+	checkout := testutil.Tree(t, map[string]string{"manifest.yaml": one, "sub/dir/keep": ""})
+	empty := t.TempDir()
+	const live, here = "2 components", "1 components"
+
+	tests := map[string]struct {
+		cwd  string
+		args []string
+		want string
+	}{
+		"no repo around: the remembered one":    {cwd: empty, want: live},
+		"in a checkout: that one, not the live": {cwd: checkout, want: here},
+		"in a checkout's subdirectory":          {cwd: filepath.Join(checkout, "sub", "dir"), want: here},
+		"a path":                                {cwd: empty, args: []string{checkout}, want: here},
+		"--repo":                                {cwd: checkout, args: []string{"--repo", remembered}, want: live},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			c, out := newCLI(t, false)
+			l := &state.Local{Repo: remembered}
+			require.NoError(t, l.Save(state.LocalPath(c.home)))
+			t.Chdir(tt.cwd)
+			require.NoError(t, c.run(context.Background(), append([]string{"validate"}, tt.args...)))
+			assert.Contains(t, out.String(), tt.want)
+		})
+	}
+
+	t.Run("a path and --repo", func(t *testing.T) {
+		c, _ := newCLI(t, false)
+		err := c.run(context.Background(), []string{"validate", checkout, "--repo", remembered})
+		require.ErrorContains(t, err, "not both")
+	})
+	t.Run("nothing to find", func(t *testing.T) {
+		c, _ := newCLI(t, false)
+		t.Chdir(empty)
+		require.ErrorIs(t, c.run(context.Background(), []string{"validate"}), repo.ErrNotFound)
+	})
 }
 
 func TestSplitPositional(t *testing.T) {
