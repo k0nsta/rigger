@@ -103,7 +103,7 @@ rigger apply --yes     # non-interactive, from hosts/<machine>.yaml
 rigger sync            # commit your changes, pull other machines', re-apply, push
 rigger adopt <path>    # take a live edit back into the repo
 rigger remote myvps    # install rigger on an ssh host, clone the repo there, run the TUI
-rigger validate .      # check a setup repo (use it in the repo's CI)
+rigger validate        # check a setup repo from anywhere (use it in the repo's CI)
 rigger skill install   # teach Claude Code and Codex how to change your setup repo
 ```
 
