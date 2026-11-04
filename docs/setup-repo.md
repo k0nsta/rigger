@@ -10,7 +10,7 @@ zsh/.zshrc
 scripts/install-x.sh
 ```
 
-Check it any time: `rigger validate path/to/repo` (also runs on every load).
+Check it any time: `rigger validate` checks the checkout you are in, or the remembered repo from anywhere else; `rigger validate DIR` or `--repo DIR` names one (also runs on every load).
 
 ## manifest.yaml
 
@@ -120,6 +120,16 @@ full list is still read.
 | `~/.config/rigger/secrets.env` | `KEY=value` (0600); a value may be `op://vault/item/field` (1Password CLI) |
 | `~/.local/state/rigger/backups/` | everything rigger replaced |
 
+## Agent sessions
+
+Run `rigger skill install` on each machine to install the rigger skill for Claude Code and Codex. It tells agents to edit the live setup repo files rather than linked files under `~`, preserve uncommitted work, use a worktree for feature work, validate manifest changes, and leave commits to `rigger sync` unless asked.
+
+The command writes `SKILL.md` to `~/.claude/skills/rigger/` and `~/.agents/skills/rigger/`. If `~/.claude` or its `skills` directory is linked into the setup repo, the Claude skill is written into that repo and can be shared by committing it with `rigger sync`. The Codex path is not linked by the usual setup, so run the command on every machine where Codex should have the skill.
+
+Rigger marks its file with `<!-- rigger: skill -->`. It updates a marked file on a later install. If either destination already contains an unmarked file, installation stops without changing either file; use `rigger skill install --force` to replace it.
+
+When rigger finds a `manifest.yaml` in the current directory or a parent, it uses that checkout only if no remembered setup repo is available. If the remembered repo still exists, rigger keeps using it and reports that the current directory is another checkout. Pass `--repo DIR` or set `$RIGGER_REPO` to choose a different repo explicitly. If the remembered checkout is gone, running rigger from the moved repo's new location makes it the remembered repo.
+
 ## Taking local edits back
 
 `rigger adopt <path>` copies a live file into the repo:
@@ -135,7 +145,7 @@ Then `rigger sync` shares it.
 
 `rigger sync`: export layouts → offer stray Homebrew packages (add to a Brewfile or ignore) → you pick changed files → credential gate (built-in patterns, plus `gitleaks` when installed) → commit `sync(<host>): …` → `git pull --rebase` (a conflict is aborted; live configs never get conflict markers) → apply what other machines added (each listed with why it is picked: its profile, `hosts/<name>.yaml`, or `needed by`; `-n` drops one from this host for good by writing `remove`) → push.
 
-A link that a tool replaced with a real file of other content (`sed -i`, an editor's atomic save) is never relinked silently: `sync` asks to adopt it, keep the repo version (your file goes to a backup, and the backup path is printed) or leave it; `sync --yes` leaves it and says `rigger adopt <path>`. A pull conflict is aborted, and the message names the files and how to finish by hand. Tracked changes left out of the commit stop the pull before it starts, with how to commit or stash them.
+A link that a tool replaced with a real file of other content (`sed -i`, an editor's atomic save) is never relinked silently: `sync` asks to adopt it, keep the repo version (your file goes to a backup, and the backup path is printed) or leave it; `sync --yes` leaves it and says `rigger adopt <path>`. A pull conflict is aborted, and the message names the files and how to finish by hand. Tracked changes you leave out of the commit stay as they are: the pull sets them aside and puts them back. Only when another machine changed one of those same files does sync stop before pulling, naming the file, so the two edits never mix.
 
 ssh runs in batch mode and a pull or push gets 90 s: a passphrase, host-key question, unapproved agent key or dead network fails with the reason instead of hanging.
 

@@ -31,6 +31,7 @@ func (c *cli) remote(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	c.noteElsewhere(s)
 	res, err := s.Exec.Run(ctx, sh.Cmd{Path: "git", Args: []string{"-C", s.Repo, "remote", "get-url", "origin"}})
 	if err != nil || res.Code != 0 {
 		return fmt.Errorf("setup repo has no origin remote: %s", strings.TrimSpace(res.Output))

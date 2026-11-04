@@ -19,6 +19,7 @@ func (c *cli) interactive(ctx context.Context, f sessionFlags) error {
 	if err != nil {
 		return err
 	}
+	c.noteElsewhere(s)
 	cfg := tui.Config{
 		Host:       s.Host,
 		HostIsNew:  s.HostIsNew,

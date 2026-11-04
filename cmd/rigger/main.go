@@ -14,6 +14,9 @@ import (
 
 	"github.com/k0nsta/rigger/internal/app"
 	"github.com/k0nsta/rigger/internal/manifest"
+	"github.com/k0nsta/rigger/internal/repo"
+	"github.com/k0nsta/rigger/internal/sh"
+	"github.com/k0nsta/rigger/internal/state"
 )
 
 // version is set by goreleaser.
@@ -30,7 +33,8 @@ commands:
   sync       commit local changes, pull other machines', re-apply, push (--yes, --no-push)
   adopt P    take a live seeded or linked file back into the repo (secrets become ${VAR})
   remote H   set up ssh host H: install rigger, clone the repo there, run the installer (--profile, --binary)
-  validate   check a setup repo's manifest.yaml
+  skill      install the agent skill for Claude Code and Codex (install, --force)
+  validate   check a setup repo's manifest.yaml (DIR, --repo, this checkout, or the remembered repo)
   version    print the version
 
 common flags: --repo DIR (or $RIGGER_REPO), --host NAME`
@@ -95,6 +99,8 @@ func (c *cli) run(ctx context.Context, args []string) error {
 		return c.remote(ctx, args[1:])
 	case "adopt":
 		return c.adopt(ctx, args[1:])
+	case "skill":
+		return c.skill(args[1:])
 	case "help", "-h", "--help":
 		_, err := fmt.Fprintln(c.out, usage)
 		return err
@@ -103,10 +109,25 @@ func (c *cli) run(ctx context.Context, args []string) error {
 	}
 }
 
+// validate checks the repo it is pointed at, else the checkout it runs in, else the remembered
+// repo. Unlike a session it trusts the checkout: it only reads, and in a worktree the manifest
+// being edited is that one.
 func (c *cli) validate(args []string) error {
-	dir := "."
-	if len(args) > 0 {
-		dir = args[0]
+	fs := newFlagSet("validate", c.err)
+	repoDir := fs.String("repo", "", "setup repo dir")
+	path, rest := splitPositional(args)
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	if path != "" && *repoDir != "" {
+		return errors.New("usage: rigger validate [DIR] or rigger validate --repo DIR, not both")
+	}
+	dir := path
+	if dir == "" {
+		var err error
+		if dir, err = c.validateDir(*repoDir); err != nil {
+			return err
+		}
 	}
 	m, err := manifest.Load(dir)
 	if err != nil {
@@ -114,6 +135,30 @@ func (c *cli) validate(args []string) error {
 	}
 	_, err = fmt.Fprintf(c.out, "%s: %d components, %d profiles, ok\n", manifest.FileName, len(m.Components), len(m.Profiles))
 	return err
+}
+
+// validateDir finds the repo to validate when no path is given.
+func (c *cli) validateDir(flagRepo string) (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	dir, _, err := repo.Discover(flagRepo, os.Getenv("RIGGER_REPO"), cwd, "")
+	if !errors.Is(err, repo.ErrNotFound) {
+		return dir, err
+	}
+	home := c.home
+	if home == "" {
+		if home, err = os.UserHomeDir(); err != nil {
+			return "", err
+		}
+	}
+	local, err := state.LoadLocal(state.LocalPath(home))
+	if err != nil {
+		return "", err
+	}
+	dir, _, err = repo.Discover("", "", "", local.Repo)
+	return dir, err
 }
 
 // sessionFlags are shared by commands that open a session.
@@ -142,6 +187,12 @@ func (f *sessionFlags) open(home string) (*app.Session, app.Selection, error) {
 		err = fmt.Errorf("%w (one of: %s)", err, strings.Join(s.Profiles(), ", "))
 	}
 	return s, sel, err
+}
+
+func (c *cli) noteElsewhere(s *app.Session) {
+	if s.Elsewhere != "" {
+		fmt.Fprintf(c.err, "using the setup repo at %s (this is another checkout; pass --repo to use it)\n", sh.Tilde(s.Home, s.Repo))
+	}
 }
 
 func newFlagSet(name string, out io.Writer) *flag.FlagSet {

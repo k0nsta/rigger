@@ -13,6 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/k0nsta/rigger/internal/app"
+	"github.com/k0nsta/rigger/internal/repo"
+	"github.com/k0nsta/rigger/internal/skill"
+	"github.com/k0nsta/rigger/internal/state"
 	"github.com/k0nsta/rigger/internal/testutil"
 )
 
@@ -42,11 +46,79 @@ func TestVersionAndHelp(t *testing.T) {
 	require.ErrorContains(t, c.run(context.Background(), []string{"nope"}), `unknown command "nope"`)
 }
 
+func TestNoteElsewhereWritesToErrorStream(t *testing.T) {
+	c, _ := newCLI(t, false)
+	var errOut bytes.Buffer
+	c.err = &errOut
+	c.noteElsewhere(&app.Session{Home: c.home, Repo: filepath.Join(c.home, "setup"), Elsewhere: filepath.Join(c.home, "worktree")})
+	assert.Equal(t, "using the setup repo at ~/setup (this is another checkout; pass --repo to use it)\n", errOut.String())
+}
+
 func TestValidate(t *testing.T) {
 	c, out := newCLI(t, false)
 	require.NoError(t, c.run(context.Background(), []string{"validate", "../../example"}))
 	assert.Contains(t, out.String(), "ok")
 	require.ErrorContains(t, c.run(context.Background(), []string{"validate", t.TempDir()}), "read manifest")
+}
+
+func TestSkillInstallCLI(t *testing.T) {
+	t.Run("prints tilde paths", func(t *testing.T) {
+		c, out := newCLI(t, false)
+		require.NoError(t, c.run(context.Background(), []string{"skill", "install"}))
+		assert.Equal(t, "~/.claude/skills/rigger/SKILL.md\n~/.agents/skills/rigger/SKILL.md\n", out.String())
+		for _, path := range skill.Paths(c.home) {
+			assert.FileExists(t, path)
+		}
+	})
+
+	t.Run("notes when Claude skill resolves into remembered repo", func(t *testing.T) {
+		c, out := newCLI(t, false)
+		repo := filepath.Join(c.home, "setup")
+		claude := filepath.Join(repo, ".claude")
+		require.NoError(t, os.MkdirAll(repo, 0o755))
+		require.NoError(t, os.MkdirAll(claude, 0o755))
+		require.NoError(t, os.Symlink(claude, filepath.Join(c.home, ".claude")))
+		require.NoError(t, (&state.Local{Repo: repo}).Save(state.LocalPath(c.home)))
+		require.NoError(t, c.run(context.Background(), []string{"skill", "install"}))
+		assert.Equal(t, "~/.claude/skills/rigger/SKILL.md (in your setup repo: commit it with rigger sync)\n~/.agents/skills/rigger/SKILL.md\n", out.String())
+		assert.FileExists(t, filepath.Join(claude, "skills", "rigger", "SKILL.md"))
+	})
+
+	t.Run("does not note sibling repo or unreadable state", func(t *testing.T) {
+		c, out := newCLI(t, false)
+		repo := filepath.Join(c.home, "setup")
+		sibling := filepath.Join(c.home, "setup-old")
+		claude := filepath.Join(repo, ".claude")
+		require.NoError(t, os.MkdirAll(repo, 0o755))
+		require.NoError(t, os.MkdirAll(claude, 0o755))
+		require.NoError(t, os.MkdirAll(sibling, 0o755))
+		require.NoError(t, os.Symlink(claude, filepath.Join(c.home, ".claude")))
+		require.NoError(t, (&state.Local{Repo: sibling}).Save(state.LocalPath(c.home)))
+		require.NoError(t, c.run(context.Background(), []string{"skill", "install"}))
+		assert.NotContains(t, out.String(), "in your setup repo")
+
+		c, out = newCLI(t, false)
+		require.NoError(t, os.MkdirAll(filepath.Dir(state.LocalPath(c.home)), 0o755))
+		require.NoError(t, os.WriteFile(state.LocalPath(c.home), []byte(": [invalid\n"), 0o600))
+		require.NoError(t, c.run(context.Background(), []string{"skill", "install"}))
+		assert.NotContains(t, out.String(), "in your setup repo")
+	})
+
+	t.Run("usage errors", func(t *testing.T) {
+		for _, args := range [][]string{{"skill"}, {"skill", "other"}, {"skill", "install", "extra"}} {
+			c, _ := newCLI(t, false)
+			require.EqualError(t, c.run(context.Background(), args), "usage: rigger skill install [--force]")
+		}
+	})
+
+	t.Run("foreign path is printed with tilde", func(t *testing.T) {
+		c, _ := newCLI(t, false)
+		foreignPath := skill.Paths(c.home)[0]
+		testutil.WriteFile(t, foreignPath, "user file\n")
+		err := c.run(context.Background(), []string{"skill", "install"})
+		require.ErrorContains(t, err, "~/.claude/skills/rigger/SKILL.md: differs from the skill")
+		assert.NoFileExists(t, skill.Paths(c.home)[1])
+	})
 }
 
 func TestStatusAndApply(t *testing.T) {
@@ -155,6 +227,48 @@ func TestInitRefusesACheckoutWithoutManifest(t *testing.T) {
 	require.NoError(t, cmd.Run())
 	require.NoError(t, c.run(context.Background(), []string{"init", bare, "--dir", dir, "--no-run"}))
 	assert.FileExists(t, filepath.Join(dir, "manifest.yaml"))
+}
+
+func TestValidateFindsTheRepo(t *testing.T) {
+	two := "version: 1\ngroups: [g]\ncomponents:\n  - {id: a, group: g, apt: [x]}\n  - {id: b, group: g, apt: [x]}\n"
+	one := "version: 1\ngroups: [g]\nunmanaged: [sub]\ncomponents:\n  - {id: a, group: g, apt: [x]}\n"
+	remembered := testutil.Tree(t, map[string]string{"manifest.yaml": two})
+	checkout := testutil.Tree(t, map[string]string{"manifest.yaml": one, "sub/dir/keep": ""})
+	empty := t.TempDir()
+	const live, here = "2 components", "1 components"
+
+	tests := map[string]struct {
+		cwd  string
+		args []string
+		want string
+	}{
+		"no repo around: the remembered one":    {cwd: empty, want: live},
+		"in a checkout: that one, not the live": {cwd: checkout, want: here},
+		"in a checkout's subdirectory":          {cwd: filepath.Join(checkout, "sub", "dir"), want: here},
+		"a path":                                {cwd: empty, args: []string{checkout}, want: here},
+		"--repo":                                {cwd: checkout, args: []string{"--repo", remembered}, want: live},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			c, out := newCLI(t, false)
+			l := &state.Local{Repo: remembered}
+			require.NoError(t, l.Save(state.LocalPath(c.home)))
+			t.Chdir(tt.cwd)
+			require.NoError(t, c.run(context.Background(), append([]string{"validate"}, tt.args...)))
+			assert.Contains(t, out.String(), tt.want)
+		})
+	}
+
+	t.Run("a path and --repo", func(t *testing.T) {
+		c, _ := newCLI(t, false)
+		err := c.run(context.Background(), []string{"validate", checkout, "--repo", remembered})
+		require.ErrorContains(t, err, "not both")
+	})
+	t.Run("nothing to find", func(t *testing.T) {
+		c, _ := newCLI(t, false)
+		t.Chdir(empty)
+		require.ErrorIs(t, c.run(context.Background(), []string{"validate"}), repo.ErrNotFound)
+	})
 }
 
 func TestSplitPositional(t *testing.T) {

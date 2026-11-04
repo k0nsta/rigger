@@ -36,6 +36,7 @@ type Options struct {
 type Session struct {
 	Home      string
 	Repo      string
+	Elsewhere string // a different checkout in cwd was skipped in favor of Repo
 	Manifest  *manifest.Manifest
 	Local     *state.Local
 	LocalPath string
@@ -69,7 +70,7 @@ func Open(opts Options) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	repoDir, err := repo.Discover(opts.Repo, os.Getenv("RIGGER_REPO"), cwd, local.Repo)
+	repoDir, elsewhere, err := repo.Discover(opts.Repo, os.Getenv("RIGGER_REPO"), cwd, local.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +79,7 @@ func Open(opts Options) (*Session, error) {
 		return nil, err
 	}
 
-	s := &Session{Home: home, Repo: repoDir, Manifest: m, Local: local, LocalPath: localPath, Platform: runtime.GOOS}
+	s := &Session{Home: home, Repo: repoDir, Elsewhere: elsewhere, Manifest: m, Local: local, LocalPath: localPath, Platform: runtime.GOOS}
 	s.Host, s.HostIsNew = pickHost(opts.Host, local.Host)
 	if s.HostFile, err = state.LoadHost(state.HostPath(repoDir, s.Host)); err != nil {
 		return nil, err

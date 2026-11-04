@@ -32,6 +32,7 @@ func (c *cli) adopt(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	c.noteElsewhere(s)
 	for _, p := range paths {
 		msg, err := s.Adopt(ctx, p)
 		if err != nil {
