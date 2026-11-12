@@ -60,6 +60,19 @@ func (c *cli) sync(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	var linkSources []string
+	for _, component := range s.Manifest.Components {
+		for _, link := range component.Links {
+			linkSources = append(linkSources, action.NewLink(s.Engine.Env, link).Rel)
+		}
+	}
+	warnings, err := sy.HomePathWarnings(ctx, changes, linkSources, s.Home)
+	if err != nil {
+		return err
+	}
+	for _, warning := range warnings {
+		fmt.Fprintf(c.out, "warning: %s\n", warning)
+	}
 	files := c.pickFiles(changes, in, yes)
 	if err := sy.Commit(ctx, s.Host, files); err != nil {
 		return err

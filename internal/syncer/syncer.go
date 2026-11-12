@@ -106,6 +106,65 @@ func (s *Syncer) Changes(ctx context.Context) ([]Change, error) {
 	return changes, nil
 }
 
+// HomePathWarnings reports changed link sources that replace a tilde home path with this
+// machine's absolute home path. A newly added absolute path is not enough to trigger it.
+func (s *Syncer) HomePathWarnings(ctx context.Context, changes []Change, linkSources []string, home string) ([]string, error) {
+	linked := make(map[string]bool, len(linkSources))
+	for _, path := range linkSources {
+		linked[filepath.ToSlash(filepath.Clean(path))] = true
+	}
+	home = filepath.Clean(home)
+	var warnings []string
+	for _, change := range changes {
+		path := filepath.ToSlash(filepath.Clean(change.Path))
+		if !linked[path] {
+			continue
+		}
+		res, err := s.git(ctx, "diff", "--no-ext-diff", "--no-color", "HEAD", "--", change.Path)
+		if err != nil {
+			return nil, err
+		}
+		if res.Code != 0 {
+			return nil, fmt.Errorf("git diff failed for %s: %s", change.Path, strings.TrimSpace(res.Output))
+		}
+		var removed []string
+		for _, line := range strings.Split(res.Output, "\n") {
+			if strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ ") || len(line) == 0 {
+				continue
+			}
+			switch line[0] {
+			case '-':
+				if strings.Contains(line, "~/") {
+					removed = append(removed, line[1:])
+				}
+			case '+':
+				if len(removed) == 0 || !strings.Contains(line, home) {
+					continue
+				}
+				oldPath := homeTildePath(removed[0])
+				warnings = append(warnings, fmt.Sprintf("%s: replaces %s with this machine's home path", change.Path, oldPath))
+				removed = nil
+			}
+		}
+	}
+	return warnings, nil
+}
+
+func homeTildePath(line string) string {
+	start := strings.Index(line, "~/")
+	if start < 0 {
+		return "~/…"
+	}
+	path := line[start:]
+	if end := strings.IndexAny(path, "\\\"'` \t)"); end >= 0 {
+		path = path[:end]
+	}
+	if path == "~/" {
+		return "~/…"
+	}
+	return path
+}
+
 // credentialPaths are file names that must never be committed.
 var credentialPaths = regexp.MustCompile(`(^|/)(\.credentials\.json|id_(rsa|ed25519|ecdsa)|.*\.pem|.*\.p12|.*\.key|secrets\.env|\.netrc|\.pgpass)$`)
 

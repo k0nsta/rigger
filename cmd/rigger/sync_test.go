@@ -144,7 +144,7 @@ components:
   - {id: zsh, group: shell, links: [{src: zsh/.zshrc, dst: ~/.zshrc}]}
   - {id: git, group: shell, links: [{src: git/.gitconfig, dst: ~/.gitconfig}]}
 `,
-		"zsh/.zshrc":     "# zsh\n",
+		"zsh/.zshrc":     "# zsh\npath=~/Library/Tool\n",
 		"git/.gitconfig": "# git\n",
 		"hosts/box.yaml": "profile: laptop\n",
 	})
@@ -201,6 +201,31 @@ func TestSyncCommitsOneChangeAndKeepsTheOther(t *testing.T) {
 	assert.Equal(t, "# git, edited\n", gitT(t, remote, "show", "main:git/.gitconfig"), "the picked change is pushed")
 	assert.Equal(t, "# zsh, edited\n", testutil.ReadFile(t, filepath.Join(repo, "zsh", ".zshrc")), "the other edit stays")
 	assert.Contains(t, gitT(t, repo, "status", "--porcelain"), " M zsh/.zshrc", "and stays uncommitted")
+}
+
+func TestSyncWarnsAboutHomePath(t *testing.T) {
+	repo, _ := syncRepo(t)
+	c, out := newCLI(t, true)
+	testutil.WriteFile(t, filepath.Join(repo, "zsh", ".zshrc"), "# zsh\npath="+filepath.Join(c.home, "Library/Tool")+"\n")
+	c.in = strings.NewReader("none\n")
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--repo", repo, "--host", "box", "--no-push"}))
+
+	got := out.String()
+	warning := "warning: zsh/.zshrc: replaces ~/Library/Tool with this machine's home path"
+	assert.Contains(t, got, warning)
+	assert.Less(t, strings.Index(got, warning), strings.Index(got, "commit which?"), "warning appears before the commit question")
+	assert.NotContains(t, got, "committed 1 file(s)")
+}
+
+func TestSyncYesWarnsAndCommitsHomePath(t *testing.T) {
+	repo, _ := syncRepo(t)
+	c, out := newCLI(t, true)
+	testutil.WriteFile(t, filepath.Join(repo, "zsh", ".zshrc"), "# zsh\npath="+filepath.Join(c.home, "Library/Tool")+"\n")
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--yes", "--no-push", "--repo", repo, "--host", "box"}))
+
+	assert.Contains(t, out.String(), "warning: zsh/.zshrc: replaces ~/Library/Tool with this machine's home path")
+	assert.Contains(t, out.String(), "committed 1 file(s)")
+	assert.Equal(t, "# zsh\npath="+filepath.Join(c.home, "Library/Tool")+"\n", gitT(t, repo, "show", "HEAD:zsh/.zshrc"))
 }
 
 func TestSyncStopsWhenALeftOutFileChangedOnTheRemote(t *testing.T) {
