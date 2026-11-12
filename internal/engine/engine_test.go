@@ -54,17 +54,17 @@ components:
 		"check-code": {Code: 1},
 		"run-code":   {Code: 0},
 	})
-	e.Env.Vars = map[string]string{"CODE": "/Users/test/code"}
+	e.Env.Vars = map[string]string{"CODE": "/home/me/code"}
 	require.NoError(t, e.Secrets.Set("TOKEN", "secret"))
 
 	statuses := plan(t, e, "setup")
-	assert.Equal(t, []string{"CODE=/Users/test/code"}, fs.cmds[0].Env)
+	assert.Equal(t, []string{"CODE=/home/me/code"}, fs.cmds[0].Env)
 	outcomes := e.Apply(context.Background(), statuses, Decisions{}, nil)
 	require.Len(t, outcomes, 1)
 	assert.Equal(t, Done, outcomes[0].Kind)
 	require.Len(t, fs.cmds, 2)
-	assert.Equal(t, []string{"CODE=/Users/test/code"}, fs.cmds[0].Env)
-	assert.ElementsMatch(t, []string{"CODE=/Users/test/code", "TOKEN=secret"}, fs.cmds[1].Env)
+	assert.Equal(t, []string{"CODE=/home/me/code"}, fs.cmds[0].Env)
+	assert.ElementsMatch(t, []string{"CODE=/home/me/code", "TOKEN=secret"}, fs.cmds[1].Env)
 }
 
 // newEngine builds an engine over a temp repo and HOME with a fake shell.
