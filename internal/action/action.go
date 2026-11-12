@@ -40,6 +40,10 @@ func (s Status) Settled() bool {
 type Env struct {
 	Home string
 	Repo string
+	// Vars are the per-session manifest variables used by paths and commands.
+	Vars map[string]string
+	// VarSources records which file supplied each variable's effective value.
+	VarSources map[string]string
 	// PrevRepo is the remembered repo path when the repo now lives elsewhere.
 	PrevRepo string
 	// BackupRoot holds this run's backups; a timestamped dir is created on first use.

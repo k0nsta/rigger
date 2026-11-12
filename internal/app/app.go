@@ -105,6 +105,9 @@ func Open(opts Options) (*Session, error) {
 		Host:     s.Host,
 		AppPaths: action.DefaultAppPaths(home),
 	}
+	if err := s.mergeHostVars(s.Host, s.HostFile); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -158,8 +161,43 @@ func (s *Session) SetHost(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := s.mergeHostVars(name, hf); err != nil {
+		return "", err
+	}
 	s.Host, s.HostFile, s.Engine.Host = name, hf, name
 	return name, nil
+}
+
+// mergeHostVars validates host overrides, validates destinations with the effective values,
+// and installs the expanded values and their source files in the action environment.
+func (s *Session) mergeHostVars(host string, hf *state.HostFile) error {
+	vars := make(map[string]string, len(s.Manifest.Vars))
+	sources := make(map[string]string, len(s.Manifest.Vars))
+	for name, value := range s.Manifest.Vars {
+		vars[name] = manifest.ExpandHome(value, s.Home)
+		sources[name] = manifest.FileName
+	}
+	if hf != nil {
+		for name, value := range hf.Vars {
+			if err := manifest.CheckVar(name, value); err != nil {
+				return fmt.Errorf("hosts/%s.yaml: vars: %w", host, err)
+			}
+			vars[name] = manifest.ExpandHome(value, s.Home)
+			sources[name] = fmt.Sprintf("hosts/%s.yaml", host)
+		}
+	}
+
+	// Validate the merged values so host overrides cannot make two destinations collide.
+	merged := *s.Manifest
+	merged.Vars = make(map[string]string, len(vars))
+	for name, value := range vars {
+		merged.Vars[name] = value
+	}
+	if err := merged.Validate(s.Repo); err != nil {
+		return fmt.Errorf("hosts/%s.yaml: %w", host, err)
+	}
+	s.Engine.Env.Vars, s.Engine.Env.VarSources = vars, sources
+	return nil
 }
 
 func (s *Session) opRead(ctx context.Context, ref string) (string, error) {
@@ -313,6 +351,7 @@ func (s *Session) Save(sel Selection) error {
 	}
 	if s.HostFile != nil {
 		hf.IgnorePackages = s.HostFile.IgnorePackages
+		hf.Vars = s.HostFile.Vars
 	}
 	if err := hf.Save(state.HostPath(s.Repo, s.Host)); err != nil {
 		return err
