@@ -103,6 +103,18 @@ func remoteFromExample(t *testing.T) string {
 	return bare
 }
 
+func remoteFromManifest(t *testing.T, contents string) string {
+	t.Helper()
+	work := t.TempDir()
+	testutil.WriteFile(t, filepath.Join(work, "manifest.yaml"), contents)
+	gitIn(t, work, "init", "-q", "-b", "main")
+	gitIn(t, work, "add", ".")
+	gitIn(t, work, "commit", "-q", "-m", "init")
+	bare := filepath.Join(t.TempDir(), "setup.git")
+	gitIn(t, "", "clone", "-q", "--bare", work, bare)
+	return bare
+}
+
 func TestApplyAndRerunIsNoop(t *testing.T) {
 	m := newMachine(t)
 	repo := filepath.Join(m.home, "setup")
@@ -244,6 +256,43 @@ func TestSyncRoundTripBetweenMachines(t *testing.T) {
 	assert.Contains(t, out, "possible credential staged")
 	log := gitIn(t, repoA, "log", "-1", "--format=%s")
 	assert.NotContains(t, log, "git/.gitconfig")
+}
+
+func TestVarsAcrossMachines(t *testing.T) {
+	remote := remoteFromManifest(t, `version: 1
+vars:
+  CODE: ~/github.com
+groups: [base]
+profiles:
+  default:
+    components: [code-marker]
+components:
+  - id: code-marker
+    group: base
+    cmds:
+      - name: create marker in CODE
+        check: test -f "$CODE/marker"
+        run: mkdir -p "$CODE" && printf marker > "$CODE/marker"
+`)
+	a, b := newMachine(t), newMachine(t)
+	repoA, repoB := filepath.Join(a.home, "setup"), filepath.Join(b.home, "setup")
+	a.rigger(true, "init", remote, "--dir", repoA, "--no-run")
+	b.rigger(true, "init", remote, "--dir", repoB, "--no-run")
+
+	// The host override is kept when apply writes the machine's component selection.
+	testutil.WriteFile(t, filepath.Join(repoB, "hosts", "b.yaml"), "vars:\n  CODE: ~/code\n")
+
+	a.rigger(true, "apply", "--yes", "--only", "code-marker", "--host", "a")
+	b.rigger(true, "apply", "--yes", "--only", "code-marker", "--host", "b")
+
+	assert.FileExists(t, filepath.Join(a.home, "github.com", "marker"))
+	assert.FileExists(t, filepath.Join(b.home, "code", "marker"))
+	assert.NoFileExists(t, filepath.Join(b.home, "github.com", "marker"))
+
+	out := a.rigger(true, "status", "--host", "a")
+	assert.Contains(t, out, "vars: CODE=~/github.com (manifest.yaml)")
+	out = b.rigger(true, "status", "--host", "b")
+	assert.Contains(t, out, "vars: CODE=~/code (hosts/b.yaml)")
 }
 
 func TestInstallScript(t *testing.T) {
