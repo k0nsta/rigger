@@ -73,10 +73,10 @@ func TestCommandProbeAndApply(t *testing.T) {
 	secrets := secretsWith(t, map[string]string{"TOKEN": "s3cret"})
 	c := Command{Repo: repo, Cmd: manifest.Cmd{
 		Name:    "make marker",
-		Check:   "test -f done",
-		Run:     `printf '%s' "$TOKEN" > done; echo wrote`,
+		Check:   `test "$CODE" = "~/code" && test -f done`,
+		Run:     `printf '%s:%s' "$TOKEN" "$CODE" > done; echo wrote`,
 		Secrets: []string{"TOKEN"},
-	}}
+	}, Env: []string{"CODE=~/code"}}
 
 	p, err := c.Probe(ctx, r, secrets)
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestCommandProbeAndApply(t *testing.T) {
 	var lines []string
 	require.NoError(t, c.Apply(ctx, r, secrets, func(l string) { lines = append(lines, l) }))
 	assert.Equal(t, []string{"wrote"}, lines)
-	assert.Equal(t, "s3cret", testutil.ReadFile(t, marker))
+	assert.Equal(t, "s3cret:~/code", testutil.ReadFile(t, marker))
 
 	p, err = c.Probe(ctx, r, secrets)
 	require.NoError(t, err)
