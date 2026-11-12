@@ -74,7 +74,7 @@ auto_commit:              # exact paths or dir/ prefixes, relative to the repo
 
 ## What Goes Where
 - **Implementation Steps** (`[ ]`): code, tests, docs in rigger.
-- **Post-Completion**: real registration on this Mac and the homelab; allowlist in the user's setup repo.
+- **Post-Completion**: real registration on this Mac and the a server; allowlist in the user's setup repo.
 
 ## Implementation Steps
 
@@ -164,7 +164,7 @@ auto_commit:              # exact paths or dir/ prefixes, relative to the repo
 ## Post-Completion
 **Manual verification**
 - this Mac: `rigger daemon install --every 20m`; edit an allowlisted file → committed after the quiet period, pushed within the hour; edit `.zshrc` → one notification, no commit
-- homelab: systemd timer with linger; a change pushed from the Mac appears within one tick
+- a server: systemd timer with linger; a change pushed from the Mac appears within one tick
 - laptop asleep for hours → one run on wake, no backlog
 
 **Setup repo**
