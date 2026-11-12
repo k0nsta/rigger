@@ -248,6 +248,30 @@ components:
 	assert.Equal(t, "box", s.Host, "a rejected host does not replace the active host")
 }
 
+func TestSetHostRejectsLiteralHomeDstCollision(t *testing.T) {
+	repo := testutil.Tree(t, map[string]string{
+		"manifest.yaml": `version: 1
+vars: {CODE: ~/other}
+profiles: {}
+components:
+  - id: a
+    group: g
+    links: [{src: files/a, dst: ~/code/x}]
+  - id: b
+    group: g
+    links: [{src: files/b, dst: "${CODE}/x"}]
+`,
+		"files/a":           "a",
+		"files/b":           "b",
+		"hosts/laptop.yaml": "vars:\n  CODE: ~/code\n",
+	})
+	s, err := Open(Options{Repo: repo, Host: "box", Home: t.TempDir()})
+	require.NoError(t, err)
+	_, err = s.SetHost("laptop")
+	require.ErrorContains(t, err, "dst")
+	assert.Equal(t, "box", s.Host, "a rejected host does not replace the active host")
+}
+
 const originManifest = `
 version: 1
 profiles:

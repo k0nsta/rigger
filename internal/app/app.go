@@ -172,8 +172,10 @@ func (s *Session) SetHost(name string) (string, error) {
 // and installs the expanded values and their source files in the action environment.
 func (s *Session) mergeHostVars(host string, hf *state.HostFile) error {
 	vars := make(map[string]string, len(s.Manifest.Vars))
+	rawVars := make(map[string]string, len(s.Manifest.Vars))
 	sources := make(map[string]string, len(s.Manifest.Vars))
 	for name, value := range s.Manifest.Vars {
+		rawVars[name] = value
 		vars[name] = manifest.ExpandHome(value, s.Home)
 		sources[name] = manifest.FileName
 	}
@@ -182,17 +184,16 @@ func (s *Session) mergeHostVars(host string, hf *state.HostFile) error {
 			if err := manifest.CheckVar(name, value); err != nil {
 				return fmt.Errorf("hosts/%s.yaml: vars: %w", host, err)
 			}
+			rawVars[name] = value
 			vars[name] = manifest.ExpandHome(value, s.Home)
 			sources[name] = fmt.Sprintf("hosts/%s.yaml", host)
 		}
 	}
 
-	// Validate the merged values so host overrides cannot make two destinations collide.
+	// Validate raw merged values so ~/ destinations can be compared using the same home marker,
+	// including when one destination uses a variable and the other writes ~/ literally.
 	merged := *s.Manifest
-	merged.Vars = make(map[string]string, len(vars))
-	for name, value := range vars {
-		merged.Vars[name] = value
-	}
+	merged.Vars = rawVars
 	if err := merged.Validate(s.Repo); err != nil {
 		return fmt.Errorf("hosts/%s.yaml: %w", host, err)
 	}
