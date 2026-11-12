@@ -70,11 +70,11 @@
 - Modify: `cmd/rigger/sync_test.go`
 - Modify: `tests/e2e_test.go`
 
-- [ ] share `decideReplacedLinks` between `sync` and `apply`; one reader in `apply`; `--yes` leaves only when the host file exists
-- [ ] a both-changed seed prints that the live file was kept, in `apply` and `sync`
-- [ ] write tests: answers through one reader with the confirm (`TestApplyAsksAboutReplacedLink`); `--yes` on a set-up machine (`TestApplyYesLeavesReplacedLink`); first run unchanged (`TestApplyFirstRunLinks`); cancelled confirm asks nothing; the seed message in apply (`TestApplySaysSeedKept`) and in sync (`TestSyncSaysSeedKept`); `TestDecideReplacedLinks` still passes
-- [ ] e2e: `TestApplyLeavesALinkReplacedByARealFile`, the `apply --yes` twin of the sync test
-- [ ] run tests - must pass before task 2
+- [x] share `decideReplacedLinks` between `sync` and `apply`; one reader in `apply`; `--yes` leaves only when the host file exists
+- [x] a both-changed seed prints that the live file was kept, in `apply` and `sync`
+- [x] write tests: answers through one reader with the confirm (`TestApplyAsksAboutReplacedLink`); `--yes` on a set-up machine (`TestApplyYesLeavesReplacedLink`); first run unchanged (`TestApplyFirstRunLinks`); cancelled confirm asks nothing; the seed message in apply (`TestApplySaysSeedKept`) and in sync (`TestSyncSaysSeedKept`); `TestDecideReplacedLinks` still passes
+- [x] e2e: `TestApplyLeavesALinkReplacedByARealFile`, the `apply --yes` twin of the sync test
+- [x] run tests - must pass before task 2
 
 ### Task 2: sync says when it did not finish
 **Files:**

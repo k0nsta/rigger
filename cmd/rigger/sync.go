@@ -175,6 +175,7 @@ func (c *cli) applyFromRepo(ctx context.Context, s *app.Session, sel app.Selecti
 	defer stop()
 	d := c.decideReplacedLinks(in, apply, yes, s.Home)
 	d.Running = processRunning(ctx, s.Exec)
+	printKeptSeeds(c.out, apply)
 	outcomes := s.Engine.Apply(ctx, apply, d, c.printEvent)
 	if err := s.Local.Save(s.LocalPath); err != nil {
 		return err
@@ -185,39 +186,6 @@ func (c *cli) applyFromRepo(ctx context.Context, s *app.Session, sel app.Selecti
 		}
 	}
 	return nil
-}
-
-// decideReplacedLinks asks what to do with each link whose target a tool replaced with a real
-// file of other content (sed -i, an editor's atomic save): relinking it silently would move the
-// user's edit to a backup. With --yes the file is left as it is and a warning says how to adopt it.
-func (c *cli) decideReplacedLinks(in *bufio.Reader, apply []engine.ComponentStatus, yes bool, home string) engine.Decisions {
-	d := engine.Decisions{Adopt: map[string]bool{}, Leave: map[string]bool{}}
-	for _, cs := range apply {
-		for _, a := range cs.Actions {
-			if a.Kind != engine.KindLink || a.Status != action.Differs {
-				continue
-			}
-			target := sh.Tilde(home, a.Target)
-			if yes {
-				d.Leave[a.Key()] = true
-				fmt.Fprintf(c.out, "warning: %s is a real file now, with other content than the repo's; left as it is.\n"+
-					"  take it into the repo: rigger adopt %s\n", target, target)
-				continue
-			}
-			fmt.Fprintf(c.out, "\n%s (%s) is a real file now, with other content than the repo's:\n", target, cs.ID())
-			fmt.Fprintln(c.out, "  a      adopt it: copy it into the repo, then link it")
-			fmt.Fprintln(c.out, "  k      keep the repo version: your file goes to a backup")
-			fmt.Fprintln(c.out, "  enter  leave it as it is for now")
-			switch c.askChoice(in, "  choice [a/k/enter]: ", "a", "k", "") {
-			case "a":
-				d.Adopt[a.Key()] = true
-			case "k":
-			default:
-				d.Leave[a.Key()] = true
-			}
-		}
-	}
-	return d
 }
 
 // askChoice reads one answer from choices, the last of which is "" (just enter), asking again

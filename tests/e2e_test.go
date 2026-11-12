@@ -399,3 +399,23 @@ func TestSyncLeavesALinkReplacedByARealFile(t *testing.T) {
 	assert.Equal(t, filepath.Join(repoDir, "git", ".gitconfig"), testutil.Readlink(t, live))
 	assert.Contains(t, testutil.ReadFile(t, filepath.Join(repoDir, "git", ".gitconfig")), "edited in place")
 }
+
+func TestApplyLeavesALinkReplacedByARealFile(t *testing.T) {
+	remote := remoteFromExample(t)
+	m := newMachine(t)
+	repoDir := filepath.Join(m.home, "setup")
+	m.rigger(true, "init", remote, "--dir", repoDir, "--no-run")
+	m.rigger(true, "apply", "--yes", "--only", "git", "--host", "a")
+	// --only is a one-off selection, so seed the host file to model a configured machine.
+	testutil.WriteFile(t, filepath.Join(repoDir, "hosts", "a.yaml"), "profile: server\n")
+
+	live := filepath.Join(m.home, ".gitconfig")
+	require.NoError(t, os.Remove(live))
+	testutil.WriteFile(t, live, "[user]\n  name = edited in place\n")
+	out := m.rigger(true, "apply", "--yes", "--host", "a", "--only", "git")
+	assert.Contains(t, out, "warning: ~/.gitconfig is a real file now, with other content than the repo's; left as it is.")
+	assert.Contains(t, out, "rigger adopt ~/.gitconfig")
+	assert.Contains(t, out, "left ~/.gitconfig as it is")
+	assert.Equal(t, "[user]\n  name = edited in place\n", testutil.ReadFile(t, live), "the edit is not moved to a backup")
+	assert.NoDirExists(t, filepath.Join(m.home, ".local", "state", "rigger", "backups"))
+}

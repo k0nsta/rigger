@@ -228,6 +228,33 @@ func TestSyncYesWarnsAndCommitsHomePath(t *testing.T) {
 	assert.Equal(t, "# zsh\npath="+filepath.Join(c.home, "Library/Tool")+"\n", gitT(t, repo, "show", "HEAD:zsh/.zshrc"))
 }
 
+func TestSyncSaysSeedKept(t *testing.T) {
+	seed := testutil.Tree(t, map[string]string{
+		"manifest.yaml": `version: 1
+profiles:
+  laptop: {components: [config]}
+components:
+  - {id: config, group: shell, seeds: [{src: config.toml, dst: ~/.config/tool/config.toml}]}
+`,
+		"config.toml":    "theme = \"repo\"\n",
+		"hosts/box.yaml": "profile: laptop\n",
+	})
+	gitT(t, seed, "init", "-q", "-b", "main")
+	gitT(t, seed, "add", ".")
+	gitT(t, seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
+	remote := filepath.Join(t.TempDir(), "setup.git")
+	gitT(t, "", "clone", "-q", "--bare", seed, remote)
+	repo := filepath.Join(t.TempDir(), "setup")
+	gitT(t, "", "clone", "-q", remote, repo)
+	gitT(t, repo, "config", "user.name", "box")
+	gitT(t, repo, "config", "user.email", "box@example.com")
+	c, out := newCLI(t, true)
+	testutil.WriteFile(t, filepath.Join(c.home, ".config", "tool", "config.toml"), "theme = \"local\"\n")
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--yes", "--no-push", "--repo", repo, "--host", "box"}))
+	assert.Contains(t, out.String(), "both the template and live file changed; kept the live file")
+	assert.Equal(t, "theme = \"local\"\n", testutil.ReadFile(t, filepath.Join(c.home, ".config", "tool", "config.toml")))
+}
+
 func TestSyncStopsWhenALeftOutFileChangedOnTheRemote(t *testing.T) {
 	repo, remote := syncRepo(t)
 	other := filepath.Join(t.TempDir(), "other")
