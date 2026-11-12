@@ -123,8 +123,8 @@
 - Modify: `CLAUDE.md`
 - Modify: `docs/plans/20261027-sync-tui.md`
 
-- [ ] `CLAUDE.md` "Next": this plan and `20261028-host-vars` on one branch for v0.1.3
-- [ ] `docs/plans/20261027-sync-tui.md` (already cleaned by PR #16): its Context notes that `apply` asks about replaced links
+- [x] `CLAUDE.md` "Next": this plan and `20261028-host-vars` on one branch for v0.1.3
+- [x] `docs/plans/20261027-sync-tui.md` (already cleaned by PR #16): its Context notes that `apply` asks about replaced links
 
 ## Post-Completion
 *Items requiring manual intervention or external systems - no checkboxes, informational only*

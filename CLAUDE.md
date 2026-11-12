@@ -34,7 +34,7 @@ make build    # bin/rigger
 
 ## Next
 
-Land `20261028-host-vars` and `20261112-public-fixes` together on one branch for v0.1.3, then `20261030-agentic-first` (v0.2.0) → `20261027-sync-tui` (v0.3.0) → `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`.
+Land `20261112-public-fixes` and `20261028-host-vars` together on one branch for v0.1.3, then `20261030-agentic-first` (v0.2.0) → `20261027-sync-tui` (v0.3.0) → `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`.
 
 ## Releases
 
