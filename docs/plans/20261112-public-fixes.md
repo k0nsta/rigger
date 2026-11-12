@@ -81,9 +81,9 @@
 - Modify: `cmd/rigger/sync.go`
 - Modify: `cmd/rigger/sync_test.go`
 
-- [ ] failed components end the run with `not finished: …`, exit 1, after the push or at `--no-push`; no `in sync`; needs-secret components listed, exit unchanged
-- [ ] write tests: a failing cmd and `--no-push` (`TestSyncNotFinished`); a component waiting for a secret (`TestSyncListsWaitingSecrets`); a clean run still exits 0 with `in sync`
-- [ ] run tests - must pass before task 3
+- [x] failed components end the run with `not finished: …`, exit 1, after the push or at `--no-push`; no `in sync`; needs-secret components listed, exit unchanged
+- [x] write tests: a failing cmd and `--no-push` (`TestSyncNotFinished`); a component waiting for a secret (`TestSyncListsWaitingSecrets`); a clean run still exits 0 with `in sync`
+- [x] run tests - must pass before task 3
 
 ### Task 3: init over ssh on a fresh machine
 **Files:**

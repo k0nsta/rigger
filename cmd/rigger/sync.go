@@ -98,39 +98,62 @@ func (c *cli) sync(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := c.applyFromRepo(ctx, s, sel, sy, in, yes); err != nil {
+	failed, skipped, err := c.applyFromRepo(ctx, s, sel, sy, in, yes)
+	if err != nil {
 		return err
 	}
 
 	if noPush {
 		fmt.Fprintln(c.out, "not pushed (--no-push)")
-		return nil
+		return syncNotFinished(failed, skipped)
 	}
 	if sy.Ahead(ctx) > 0 {
 		fmt.Fprintln(c.out, "pushing…")
 		if err := sy.Push(ctx); err != nil {
+			if notFinished := syncNotFinished(failed, skipped); notFinished != nil {
+				return fmt.Errorf("%w; %v", err, notFinished)
+			}
 			return err
 		}
+	}
+	if err := syncNotFinished(failed, skipped); err != nil {
+		return err
 	}
 	fmt.Fprintln(c.out, "in sync")
 	return nil
 }
 
+func syncNotFinished(failed, skipped []string) error {
+	if len(failed)+len(skipped) == 0 {
+		return nil
+	}
+	return fmt.Errorf("not finished: failed [%s], skipped [%s]", strings.Join(failed, ", "), strings.Join(skipped, ", "))
+}
+
 // applyFromRepo lists what the pulled repo would change here and why each component is
 // picked, applies the chosen ones, and lets the others be dropped from this host for good.
-func (c *cli) applyFromRepo(ctx context.Context, s *app.Session, sel app.Selection, sy *syncer.Syncer, in *bufio.Reader, yes bool) error {
+func (c *cli) applyFromRepo(ctx context.Context, s *app.Session, sel app.Selection, sy *syncer.Syncer, in *bufio.Reader, yes bool) (failed, skipped []string, err error) {
 	res, statuses, err := s.Plan(ctx, sel)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
+	var waitingSecrets []string
 	var pending []engine.ComponentStatus
 	for _, cs := range statuses {
-		if !cs.Settled() && !cs.OfferOnly() && cs.State != action.NeedsSecret {
+		if cs.State == action.NeedsSecret {
+			waitingSecrets = append(waitingSecrets, cs.ID())
+		} else if !cs.Settled() && !cs.OfferOnly() {
 			pending = append(pending, cs)
 		}
 	}
+	if len(waitingSecrets) > 0 {
+		fmt.Fprintf(c.out, "\nwaiting for a secret: %s\n", strings.Join(waitingSecrets, ", "))
+		if missing := engine.MissingSecrets(statuses, s.Secrets); len(missing) > 0 {
+			fmt.Fprint(c.out, missingSecrets(s.Home, missing, "components needing them are skipped"))
+		}
+	}
 	if len(pending) == 0 {
-		return nil
+		return nil, nil, nil
 	}
 	fmt.Fprintf(c.out, "\n%d component(s) to apply from the repo:\n", len(pending))
 	tw := tabwriter.NewWriter(c.out, 0, 0, 2, ' ', 0)
@@ -160,17 +183,17 @@ func (c *cli) applyFromRepo(ctx context.Context, s *app.Session, sel app.Selecti
 			hostFile := filepath.ToSlash(filepath.Join("hosts", s.Host+".yaml"))
 			fmt.Fprintf(c.out, "dropped %s from %s (rigger never uninstalls: remove what is already there by hand)\n", strings.Join(dropped, ", "), hostFile)
 			if err := sy.Commit(ctx, s.Host, []string{hostFile}); err != nil {
-				return err
+				return nil, nil, err
 			}
 		}
 	}
 	if len(apply) == 0 {
-		return nil
+		return nil, nil, nil
 	}
 
 	stop, err := s.StartAskpass(c.terminalPassword)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	defer stop()
 	d := c.decideReplacedLinks(in, apply, yes, s.Home)
@@ -178,14 +201,17 @@ func (c *cli) applyFromRepo(ctx context.Context, s *app.Session, sel app.Selecti
 	printKeptSeeds(c.out, apply)
 	outcomes := s.Engine.Apply(ctx, apply, d, c.printEvent)
 	if err := s.Local.Save(s.LocalPath); err != nil {
-		return err
+		return nil, nil, err
 	}
 	for _, o := range outcomes {
-		if o.Kind == engine.Failed {
-			fmt.Fprintf(c.out, "warning: %s failed: %v\n", o.Component, o.Err)
+		switch o.Kind {
+		case engine.Failed:
+			failed = append(failed, o.Component)
+		case engine.Skipped:
+			skipped = append(skipped, o.Component)
 		}
 	}
-	return nil
+	return failed, skipped, nil
 }
 
 // askChoice reads one answer from choices, the last of which is "" (just enter), asking again

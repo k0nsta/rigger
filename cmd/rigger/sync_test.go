@@ -160,6 +160,68 @@ components:
 	return repo, remote
 }
 
+func addSyncComponent(t *testing.T, repo, component string) {
+	t.Helper()
+	path := filepath.Join(repo, "manifest.yaml")
+	data := testutil.ReadFile(t, path)
+	data = strings.Replace(data, "components: [zsh, git]", "components: [zsh, git, "+component+"]", 1)
+	data += "  - {id: " + component + ", group: shell, cmds: [{check: \"false\", run: \"false\"}]}\n"
+	testutil.WriteFile(t, path, data)
+	gitT(t, repo, "add", "manifest.yaml")
+	gitT(t, repo, "-c", "user.name=box", "-c", "user.email=box@example.com", "commit", "-q", "-m", "add "+component)
+}
+
+func TestSyncNotFinished(t *testing.T) {
+	for _, noPush := range []bool{false, true} {
+		name := "push"
+		if noPush {
+			name = "no-push"
+		}
+		t.Run(name, func(t *testing.T) {
+			repo, remote := syncRepo(t)
+			addSyncComponent(t, repo, "broken")
+			c, out := newCLI(t, true)
+			args := []string{"sync", "--yes", "--repo", repo, "--host", "box"}
+			if noPush {
+				args = append(args, "--no-push")
+			}
+			err := c.run(context.Background(), args)
+			require.ErrorContains(t, err, "not finished: failed [broken], skipped []")
+			assert.NotContains(t, out.String(), "in sync")
+			if noPush {
+				assert.Contains(t, out.String(), "not pushed (--no-push)")
+				assert.NotContains(t, gitT(t, remote, "show", "main:manifest.yaml"), "id: broken")
+			} else {
+				assert.Contains(t, gitT(t, remote, "show", "main:manifest.yaml"), "id: broken", "the push happens before reporting apply failures")
+			}
+		})
+	}
+}
+
+func TestSyncListsWaitingSecrets(t *testing.T) {
+	repo, _ := syncRepo(t)
+	path := filepath.Join(repo, "manifest.yaml")
+	data := testutil.ReadFile(t, path)
+	data = strings.Replace(data, "components: [zsh, git]", "components: [zsh, git, private]", 1)
+	data += "  - {id: private, group: shell, cmds: [{check: \"false\", run: \"true\", secrets: [TOKEN]}]}\n"
+	testutil.WriteFile(t, path, data)
+	gitT(t, repo, "add", "manifest.yaml")
+	gitT(t, repo, "-c", "user.name=box", "-c", "user.email=box@example.com", "commit", "-q", "-m", "add private")
+	c, out := newCLI(t, true)
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--yes", "--no-push", "--repo", repo, "--host", "box"}))
+	assert.Contains(t, out.String(), "waiting for a secret: private")
+	assert.Contains(t, out.String(), "missing secrets (components needing them are skipped): TOKEN")
+	assert.NotContains(t, out.String(), "not finished:")
+	assert.NotContains(t, out.String(), "in sync")
+}
+
+func TestSyncCleanRunSaysInSync(t *testing.T) {
+	repo, _ := syncRepo(t)
+	c, out := newCLI(t, true)
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--yes", "--repo", repo, "--host", "box"}))
+	assert.Contains(t, out.String(), "in sync")
+}
+
 func TestSyncAppliesPickedAndDropsFromHost(t *testing.T) {
 	repo, remote := syncRepo(t)
 	c, out := newCLI(t, true)
