@@ -229,10 +229,11 @@ func TestConflictFix(t *testing.T) {
 
 func TestDecideReplacedLinks(t *testing.T) {
 	replaced := []engine.ComponentStatus{{Component: &manifest.Component{ID: "zsh"}, Actions: []engine.ActionStatus{
-		{Kind: engine.KindLink, Target: "~/.zshrc", Status: action.Differs},
+		// This target comes from a manifest dst of ${CODE}/.zshrc.
+		{Kind: engine.KindLink, Target: "~/code/.zshrc", Status: action.Differs},
 		{Kind: engine.KindLink, Target: "~/.gitconfig", Status: action.Missing},
 	}}}
-	key := "link:~/.zshrc"
+	key := "link:~/code/.zshrc"
 	tests := map[string]struct {
 		yes          bool
 		input        string
@@ -253,7 +254,8 @@ func TestDecideReplacedLinks(t *testing.T) {
 			assert.Equal(t, tt.leave, d.Leave[key])
 			assert.False(t, d.Leave["link:~/.gitconfig"], "a missing link is created as usual")
 			if tt.yes {
-				assert.Contains(t, out.String(), "rigger adopt ~/.zshrc")
+				assert.Contains(t, out.String(), "warning: ~/code/.zshrc is a real file now")
+				assert.Contains(t, out.String(), "rigger adopt ~/code/.zshrc")
 			}
 		})
 	}

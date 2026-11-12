@@ -150,6 +150,59 @@ func TestStatusAndApply(t *testing.T) {
 	assert.Regexp(t, `(?m)^git\s+ok`, out.String())
 }
 
+func TestStatusShowsVars(t *testing.T) {
+	tests := []struct {
+		name       string
+		manifest   string
+		host       string
+		want       string
+		wantAbsent string
+	}{
+		{
+			name:     "default",
+			manifest: "vars:\n  CODE: ~/github.com\n",
+			want:     "vars: CODE=~/github.com (manifest.yaml)",
+		},
+		{
+			name:       "override",
+			manifest:   "vars:\n  CODE: ~/github.com\n",
+			host:       "vars:\n  CODE: ~/code\n",
+			want:       "vars: CODE=~/code (hosts/box.yaml)",
+			wantAbsent: "CODE=~/github.com",
+		},
+		{
+			name:       "undeclared host var",
+			host:       "vars:\n  EXTRA: ~/extra\n",
+			want:       "warning: hosts/box.yaml: var EXTRA is not declared in manifest vars",
+			wantAbsent: "vars: EXTRA=",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := copyExample(t)
+			manifestPath := filepath.Join(repo, "manifest.yaml")
+			manifestData, err := os.ReadFile(manifestPath)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(manifestPath, append([]byte(tt.manifest), manifestData...), 0o644))
+			if tt.host != "" {
+				testutil.WriteFile(t, filepath.Join(repo, "hosts", "box.yaml"), tt.host)
+			}
+			c, out := newCLI(t, false)
+			err = c.run(context.Background(), []string{"status", "--repo", repo, "--host", "box", "--profile", "laptop", "--only", "git"})
+			var code exitCode
+			if errors.As(err, &code) {
+				require.Equal(t, exitCode(1), code)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Contains(t, out.String(), tt.want)
+			if tt.wantAbsent != "" {
+				assert.NotContains(t, out.String(), tt.wantAbsent)
+			}
+		})
+	}
+}
+
 func TestApplyNeedsProfileOnFirstRun(t *testing.T) {
 	c, _ := newCLI(t, false)
 	err := c.run(context.Background(), []string{"status", "--repo", copyExample(t), "--host", "new"})
