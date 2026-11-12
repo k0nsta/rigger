@@ -12,7 +12,7 @@
 - `sync` exits 1 when a component failed, after the push, so other work still goes out. A component waiting for a secret is listed and does not change the exit code: a machine that lacks a secret is a normal state.
 - The private names stay in public git history; rewriting a published history is not worth it for these.
 - Lands on one branch, `v0.1.3`, with `docs/plans/20261028-host-vars.md`, which runs first; this plan runs second on the same branch, so its line numbers in `apply.go` and `sync.go` may have moved: read the function, not the line (2026-11-12).
-- Before the run, outside every task: PR #16 is merged (it removes the machine names from `docs/plans/20261027-sync-tui.md`), and docker runs (`colima start`) so the Linux container test runs instead of skipping (2026-11-12).
+- Before the run, outside every task: PR #16 is merged (it removes the machine names from `docs/plans/20261027-sync-tui.md`), and docker runs (`colima start`) so the Linux container test runs instead of skipping; the run reaches it through the repository's stepwise `env_file`, which sets `DOCKER_HOST` to colima's socket (2026-11-12).
 - The maintainer's own leak check over every tracked file runs outside the repo after the run, and only its result is recorded (Post-Completion); the run's own check is the repo-only grep in Acceptance Criteria (2026-11-12).
 
 ## Context (from discovery)
@@ -50,12 +50,13 @@
 - **Post-Completion**: release with v0.1.3.
 
 ## Acceptance Criteria
-- Run: `go test -count=1 -run 'TestApplyAsksAboutReplacedLink|TestApplyYesLeavesReplacedLink|TestApplyFirstRunLinks|TestApplySaysSeedKept' ./cmd/rigger/`
+- Run: `go test -count=1 -run 'TestApplyAsksAboutReplacedLink|TestApplyYesLeavesReplacedLink|TestApplyFirstRunLinks|TestApplySaysSeedKept|TestSyncSaysSeedKept' ./cmd/rigger/`
 - Run: `go test -count=1 -run 'TestSyncNotFinished|TestSyncListsWaitingSecrets' ./cmd/rigger/`
 - Run: `go test -count=1 -run 'TestCloneAcceptsNewHostKey|TestCloneErrorNamesCause' ./internal/repo/`
 - Run: `go test -count=1 -run 'TestApplyLeavesALinkReplacedByARealFile|TestApplyAndRerunIsNoop' ./tests/`
 - Run: `go test -count=1 -run TestLinuxServerProfile -v ./tests/ | grep -q -- '--- PASS: TestLinuxServerProfile'`
-- Run: `grep -q 'common token formats' README.md && ! grep -q '^| .--dry-run. |' README.md`
+- Run: `grep -q 'common token formats' README.md && ! grep -q '^| .--dry-run. |' README.md && grep -q 'rigger apply.*--dry-run' README.md`
+- Run: `grep -q 'leaves it once the machine is set up' docs/setup-repo.md && grep -q 'asked about in the TUI and kept elsewhere' docs/setup-repo.md`
 - Run: `gitleaks git .`
 - Run: `! git grep -n -I -E '/Users/[a-z]{3,}/|Dev/github\.com/' -- . ':!docs/plans/*public-fixes.md' ':!docs/plans/completed/*public-fixes.md'`
 
@@ -71,7 +72,7 @@
 
 - [ ] share `decideReplacedLinks` between `sync` and `apply`; one reader in `apply`; `--yes` leaves only when the host file exists
 - [ ] a both-changed seed prints that the live file was kept, in `apply` and `sync`
-- [ ] write tests: answers through one reader with the confirm (`TestApplyAsksAboutReplacedLink`); `--yes` on a set-up machine (`TestApplyYesLeavesReplacedLink`); first run unchanged (`TestApplyFirstRunLinks`); cancelled confirm asks nothing; the seed message in apply (`TestApplySaysSeedKept`) and in sync; `TestDecideReplacedLinks` still passes
+- [ ] write tests: answers through one reader with the confirm (`TestApplyAsksAboutReplacedLink`); `--yes` on a set-up machine (`TestApplyYesLeavesReplacedLink`); first run unchanged (`TestApplyFirstRunLinks`); cancelled confirm asks nothing; the seed message in apply (`TestApplySaysSeedKept`) and in sync (`TestSyncSaysSeedKept`); `TestDecideReplacedLinks` still passes
 - [ ] e2e: `TestApplyLeavesALinkReplacedByARealFile`, the `apply --yes` twin of the sync test
 - [ ] run tests - must pass before task 2
 
@@ -101,7 +102,7 @@
 - Modify: `README.md`
 - Modify: `docs/setup-repo.md`
 
-- [ ] the credential sentence, `--dry-run` under `apply`, the link and seed rows as in Technical Details
+- [ ] the credential sentence (with the words "common token formats"); `--dry-run` out of the general flag table and on the `rigger apply` line of "Every day"; the link row says `--yes` "leaves it once the machine is set up", the seed row says a both-changed seed is "asked about in the TUI and kept elsewhere"
 - [ ] run tests - must pass before task 5
 
 ### Task 5: no personal data in the public repo
