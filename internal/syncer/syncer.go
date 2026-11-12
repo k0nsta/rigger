@@ -117,7 +117,16 @@ func (s *Syncer) HomePathWarnings(ctx context.Context, changes []Change, linkSou
 	var warnings []string
 	for _, change := range changes {
 		path := filepath.ToSlash(filepath.Clean(change.Path))
-		if !linked[path] {
+		isLinked := linked[path]
+		if !isLinked {
+			for source := range linked {
+				if strings.HasPrefix(path, source+"/") {
+					isLinked = true
+					break
+				}
+			}
+		}
+		if !isLinked {
 			continue
 		}
 		res, err := s.git(ctx, "diff", "--no-ext-diff", "--no-color", "HEAD", "--", change.Path)

@@ -76,6 +76,20 @@ func TestHomePathWarnings(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"zsh/.zshrc: replaces ~/Library/Tool with this machine's home path"}, warnings)
 	})
+	t.Run("file under linked directory", func(t *testing.T) {
+		a, _ := machines(t)
+		path := "zsh/nested/config"
+		testutil.WriteFile(t, filepath.Join(a.Repo, path), "config=~/Library/Tool\n")
+		git(t, a.Repo, "add", path)
+		git(t, a.Repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "nested config")
+		testutil.WriteFile(t, filepath.Join(a.Repo, path), "config=/Users/box/Library/Tool\n")
+
+		changes, err := a.Changes(ctx)
+		require.NoError(t, err)
+		warnings, err := a.HomePathWarnings(ctx, changes, []string{"zsh"}, "/Users/box")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"zsh/nested/config: replaces ~/Library/Tool with this machine's home path"}, warnings)
+	})
 	t.Run("added path alone and outside link", func(t *testing.T) {
 		a, _ := machines(t)
 		testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "config=/Users/box/Library/Tool\n")
