@@ -49,6 +49,8 @@ func (l *Local) Save(path string) error { return writeYAML(path, l, 0o600) }
 // Storing only the difference lets later profile changes reach every machine on its next sync.
 type HostFile struct {
 	Profile string `yaml:"profile,omitempty"`
+	// Vars override manifest defaults for this host.
+	Vars map[string]string `yaml:"vars,omitempty"`
 	// Add are components picked here on top of the profile.
 	Add []string `yaml:"add,omitempty"`
 	// Remove are profile components unpicked here.

@@ -68,6 +68,66 @@ func TestValidateSample(t *testing.T) {
 	require.NoError(t, m.Validate(sampleRepo(t)))
 }
 
+func TestVars(t *testing.T) {
+	repo := fakeRepo(t, map[string]string{"dots/rc": "x", "dots/seed": "y"})
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"parse vars", `version: 1
+vars: {CODE: "~/github.com"}
+components: [{id: a, group: base, links: [{src: dots/rc, dst: "${CODE}/tool"}]}]
+`, ""},
+		{"undeclared dst var", `version: 1
+components: [{id: a, group: base, links: [{src: dots/rc, dst: "${CODEDIR}/tool"}]}]
+`, "component a: links: ${CODEDIR} is not in vars"},
+		{"secret clash", `version: 1
+vars: {TOKEN: "~/token"}
+components: [{id: a, group: base, seeds: [{src: dots/seed, dst: ~/.seed, secrets: [TOKEN]}]}]
+`, `variable "TOKEN" is also used as a seed secret`},
+		{"nested default expanded dst", `version: 1
+vars: {CODE: "~/github.com"}
+components: [{id: a, group: base, links: [{src: dots/rc, dst: "${CODE}"}]}, {id: b, group: base, seeds: [{src: dots/seed, dst: "${CODE}/tool/config"}]}]
+`, "is inside the link ${CODE}"},
+		{"duplicate default expanded dst", `version: 1
+vars: {CODE: "~/github.com"}
+components: [{id: a, group: base, links: [{src: dots/rc, dst: "${CODE}/tool"}]}, {id: b, group: base, seeds: [{src: dots/seed, dst: "~/github.com/tool/"}]}]
+`, "is already used"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := parse(t, tc.src)
+			err := m.Validate(repo)
+			if tc.want == "" {
+				require.NoError(t, err)
+				assert.Equal(t, "~/github.com", m.Vars["CODE"])
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+func TestVarsRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name, value, want string
+	}{
+		{"bad-name", "~/code", "must match"},
+		{"HOME", "~/code", "reserved"},
+		{"RIGGER_TEST", "~/code", "reserved"},
+		{"CODE", "relative/code", "must be ~"},
+		{"CODE", "~/${OTHER}", "must not contain"},
+	} {
+		t.Run(tc.name+"/"+tc.value, func(t *testing.T) {
+			err := CheckVar(tc.name, tc.value)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
 func TestExpandProfile(t *testing.T) {
 	m := parse(t, sample)
 
