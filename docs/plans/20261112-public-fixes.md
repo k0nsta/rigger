@@ -102,8 +102,8 @@
 - Modify: `README.md`
 - Modify: `docs/setup-repo.md`
 
-- [ ] the credential sentence (with the words "common token formats"); `--dry-run` out of the general flag table and on the `rigger apply` line of "Every day"; the link row says `--yes` "leaves it once the machine is set up", the seed row says a both-changed seed is "asked about in the TUI and kept elsewhere"
-- [ ] run tests - must pass before task 5
+- [x] the credential sentence (with the words "common token formats"); `--dry-run` out of the general flag table and on the `rigger apply` line of "Every day"; the link row says `--yes` "leaves it once the machine is set up", the seed row says a both-changed seed is "asked about in the TUI and kept elsewhere"
+- [x] run tests - must pass before task 5
 
 ### Task 5: no personal data in the public repo
 **Files:**

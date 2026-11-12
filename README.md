@@ -22,7 +22,8 @@ groups them into components and profiles. rigger adds what those files cannot do
 - **Safe on a machine you already use.** It shows the plan first, backs up what it replaces,
   and never uninstalls or deletes anything.
 - **Secrets stay out of git.** Templates take `${TOKEN}` from a local secrets file, and sync
-  refuses to commit anything that looks like a credential.
+  refuses to commit credential files and common token formats (every gitleaks rule when
+  `gitleaks` is installed).
 
 Already have a dotfiles repo? Add a `manifest.yaml` to it; the files stay where they are.
 Compared with dotbot, rigger adds per-machine picks, package installs and two-way sync.
@@ -99,7 +100,7 @@ stores it.
 ```bash
 rigger                 # TUI for the remembered repo
 rigger status          # what is in place; exit 1 if anything is missing
-rigger apply --yes     # non-interactive, from hosts/<machine>.yaml
+rigger apply --yes [--dry-run]  # non-interactive, from hosts/<machine>.yaml
 rigger sync            # commit your changes, pull other machines', re-apply, push
 rigger adopt <path>    # take a live edit back into the repo
 rigger remote myvps    # install rigger on an ssh host, clone the repo there, run the TUI
@@ -113,7 +114,6 @@ rigger skill install   # teach Claude Code and Codex how to change your setup re
 | `--host NAME` | act as this machine |
 | `--profile P` | start from profile P |
 | `--only a,b` | apply just these components this once; the saved picks stay as they are |
-| `--dry-run` | show the plan, change nothing |
 
 ## Common tasks
 

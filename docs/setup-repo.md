@@ -80,8 +80,8 @@ symlink target follows each host's `CODE` value.
 
 | field | does | when the target already exists |
 |---|---|---|
-| `links` | symlink `dst` → `src` in the repo | a link into the repo's old location (after you moved the repo): relinked, no backup; other file/link/dir: backed up, then linked; a **file** with other content asks: adopt it into the repo, or keep the repo version |
-| `seeds` | render `src` once into `dst` for tools that rewrite their own config; only the listed `${SECRETS}` are replaced | rigger remembers the hash of its last render: template changed and file untouched → re-rendered; only the file changed → left alone; both → asks |
+| `links` | symlink `dst` → `src` in the repo | a link into the repo's old location (after you moved the repo): relinked, no backup; other file/link/dir: backed up, then linked; a **file** with other content asks: adopt it into the repo, or keep the repo version; `--yes` leaves it once the machine is set up |
+| `seeds` | render `src` once into `dst` for tools that rewrite their own config; only the listed `${SECRETS}` are replaced | rigger remembers the hash of its last render: template changed and file untouched → re-rendered; only the file changed → left alone; both → asked about in the TUI and kept elsewhere |
 | `brewfile` | `brew bundle` with per-package picks (`HOMEBREW_BUNDLE_*_SKIP`) | casks whose app or font is already on disk count as present and are skipped |
 | `apt` | one `apt-get install -y` batch (sudo, or direct as root) | installed packages are skipped |
 | `layouts` | `rigger sync` exports app window/workspace files to `src/<host>/` with the home path replaced by `{{RIGGER_HOME}}` | import is offered only when the app has no state yet; refused while `process` runs |
