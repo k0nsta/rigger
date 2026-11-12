@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -197,6 +198,28 @@ func TestHostVarsRefused(t *testing.T) {
 	})
 	_, err := Open(Options{Repo: repo, Host: "box", Home: t.TempDir()})
 	require.ErrorContains(t, err, "hosts/box.yaml: vars: variable \"CODE\"")
+}
+
+func TestAdoptMessageUsesExpandedTarget(t *testing.T) {
+	repo := testutil.Tree(t, map[string]string{
+		"manifest.yaml": `version: 1
+vars: {CODE: ~/code}
+profiles: {}
+components:
+  - id: tool
+    group: g
+    links: [{src: files/x, dst: "${CODE}/x"}]
+`,
+		"files/x": "repo",
+	})
+	home := t.TempDir()
+	s, err := Open(Options{Repo: repo, Host: "box", Home: home})
+	require.NoError(t, err)
+	target := filepath.Join(home, "code", "x")
+	testutil.WriteFile(t, target, "live")
+	msg, err := s.Adopt(context.Background(), "~/code/x")
+	require.NoError(t, err)
+	assert.Contains(t, msg, "~/code/x copied into")
 }
 
 func TestSetHostRejectsMergedDstCollision(t *testing.T) {

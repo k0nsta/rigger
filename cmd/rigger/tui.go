@@ -26,6 +26,7 @@ func (c *cli) interactive(ctx context.Context, f sessionFlags) error {
 		Platform:   s.Platform,
 		Repo:       sh.Tilde(s.Home, s.Repo),
 		Home:       s.Home,
+		Vars:       s.Engine.Env.Vars,
 		Components: s.PlatformComponents(),
 		Groups:     s.Manifest.GroupOrder(),
 		Manual:     s.Manual,

@@ -156,7 +156,7 @@ func (e *Engine) probeComponent(ctx context.Context, c *manifest.Component, excl
 		if err != nil {
 			return cs, err
 		}
-		add(ActionStatus{Kind: KindLink, Target: l.Dst, Status: p.Status, Detail: p.Detail, link: &link, linkProbe: p})
+		add(ActionStatus{Kind: KindLink, Target: sh.Tilde(e.Env.Home, link.Dst), Status: p.Status, Detail: p.Detail, link: &link, linkProbe: p})
 	}
 	for _, s := range c.Seeds {
 		seed := action.NewSeed(e.Env, s)
@@ -164,7 +164,7 @@ func (e *Engine) probeComponent(ctx context.Context, c *manifest.Component, excl
 		if err != nil {
 			return cs, err
 		}
-		add(ActionStatus{Kind: KindSeed, Target: s.Dst, Status: p.Status, Detail: p.Detail, seed: &seed, seedProbe: p})
+		add(ActionStatus{Kind: KindSeed, Target: sh.Tilde(e.Env.Home, seed.Dst), Status: p.Status, Detail: p.Detail, seed: &seed, seedProbe: p})
 	}
 	if c.Layouts != nil {
 		lay := action.NewLayouts(e.Env, *c.Layouts)
@@ -172,7 +172,7 @@ func (e *Engine) probeComponent(ctx context.Context, c *manifest.Component, excl
 		if err != nil {
 			return cs, err
 		}
-		add(ActionStatus{Kind: KindLayouts, Target: c.Layouts.Dst, Status: p.Status, Detail: p.Detail, layouts: &lay, layProbe: p})
+		add(ActionStatus{Kind: KindLayouts, Target: sh.Tilde(e.Env.Home, lay.Dst), Status: p.Status, Detail: p.Detail, layouts: &lay, layProbe: p})
 	}
 	for _, mc := range c.Cmds {
 		cmd := action.Command{Cmd: mc, Repo: e.Env.Repo}

@@ -82,10 +82,19 @@ func session(t *testing.T) *app.Session {
 	return s
 }
 
+func TestLeftBehindExpandsVars(t *testing.T) {
+	home := t.TempDir()
+	got := leftBehind(&manifest.Component{Links: []manifest.Link{{Dst: "${CODE}/x"}}}, &action.Env{
+		Home: home, Vars: map[string]string{"CODE": filepath.Join(home, "code")},
+	})
+	assert.Equal(t, "~/code/x", got)
+}
+
 func newModel(t *testing.T, s *app.Session) *Model {
 	t.Helper()
 	cfg := Config{
 		Host: s.Host, HostIsNew: s.HostIsNew, Platform: s.Platform, Repo: s.Repo,
+		Home: s.Home, Vars: s.Engine.Env.Vars,
 		Components: s.PlatformComponents(), Groups: s.Manifest.GroupOrder(), Manual: s.Manual,
 	}
 	for _, name := range s.Profiles() {

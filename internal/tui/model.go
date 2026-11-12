@@ -31,9 +31,10 @@ type Config struct {
 	HostIsNew bool
 	Platform  string
 	// Repo is for display (~ for HOME); Home turns other shown paths into ~ form.
-	Repo      string
-	Home      string
-	Profiles  []Profile
+	Repo     string
+	Home     string
+	Vars     map[string]string
+	Profiles []Profile
 	// Current is the selection saved for this host, if any.
 	Current    *app.Selection
 	Components []*manifest.Component

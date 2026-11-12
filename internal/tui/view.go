@@ -213,7 +213,7 @@ func (m *Model) viewReview(b *strings.Builder) {
 		b.WriteString("\n" + headerStyle.Render("Unpicked on this machine") + "\n")
 		b.WriteString(dimStyle.Render("rigger stops applying these but never uninstalls: remove what you no longer want by hand.") + "\n")
 		for _, c := range gone {
-			fmt.Fprintf(b, "  %-20s %s\n", truncate(c.Name(), 20), dimStyle.Render(leftBehind(c)))
+			fmt.Fprintf(b, "  %-20s %s\n", truncate(c.Name(), 20), dimStyle.Render(leftBehind(c, &action.Env{Home: m.cfg.Home, Vars: m.cfg.Vars})))
 		}
 	}
 
@@ -381,13 +381,13 @@ func truncate(s string, n int) string {
 }
 
 // leftBehind says what an unpicked component left on the machine.
-func leftBehind(c *manifest.Component) string {
+func leftBehind(c *manifest.Component, env *action.Env) string {
 	var paths []string
 	for _, l := range c.Links {
-		paths = append(paths, l.Dst)
+		paths = append(paths, sh.Tilde(env.Home, env.Expand(l.Dst)))
 	}
 	for _, sd := range c.Seeds {
-		paths = append(paths, sd.Dst)
+		paths = append(paths, sh.Tilde(env.Home, env.Expand(sd.Dst)))
 	}
 	var parts []string
 	if len(paths) > 0 {

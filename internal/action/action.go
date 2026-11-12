@@ -55,6 +55,26 @@ type Env struct {
 
 // Expand resolves a manifest dst (with ~) to an absolute path.
 func (e *Env) Expand(path string) string {
+	for start := 0; start < len(path); {
+		i := strings.Index(path[start:], "${")
+		if i < 0 {
+			break
+		}
+		start += i
+		end := strings.IndexByte(path[start+2:], '}')
+		if end < 0 {
+			break
+		}
+		end += start + 2
+		name := path[start+2 : end]
+		value, ok := e.Vars[name]
+		if !ok {
+			start = end + 1
+			continue
+		}
+		path = path[:start] + value + path[end+1:]
+		start += len(value)
+	}
 	if path == "~" {
 		return e.Home
 	}

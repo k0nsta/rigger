@@ -111,6 +111,30 @@ components:
 	assert.Contains(t, cfg.Summary, "~/.s both-changed")
 }
 
+func TestExpandedTargetsAndDecisionKeys(t *testing.T) {
+	e, _ := newEngine(t, `
+version: 1
+vars: {CODE: ~/code}
+components:
+  - id: paths
+    group: g
+    links: [{src: f, dst: "${CODE}/link"}]
+    seeds: [{src: s, dst: "${CODE}/seed"}]
+    layouts: {src: layouts, dst: "${CODE}/layouts", files: [state.json]}
+`, map[string]string{"f": "x", "s": "x"}, nil)
+	e.Env.Vars = map[string]string{"CODE": filepath.Join(e.Env.Home, "code")}
+	statuses := plan(t, e, "paths")
+	require.Len(t, statuses, 1)
+	actions := statuses[0].Actions
+	require.Len(t, actions, 3)
+	assert.Equal(t, "~/code/link", actions[0].Target)
+	assert.Equal(t, "link:~/code/link", actions[0].Key())
+	assert.Equal(t, "~/code/seed", actions[1].Target)
+	assert.Equal(t, "seed:~/code/seed", actions[1].Key())
+	assert.Equal(t, "~/code/layouts", actions[2].Target)
+	assert.Equal(t, "layouts:~/code/layouts", actions[2].Key())
+}
+
 func TestApplyOrderAndFailureIsolation(t *testing.T) {
 	e, fs := newEngine(t, chainManifest, map[string]string{"f": "x"}, map[string]sh.Result{
 		"check-base": {Code: 1},

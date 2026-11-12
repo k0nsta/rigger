@@ -62,6 +62,13 @@ func TestLayoutsExportImportRoundTrip(t *testing.T) {
 	assert.Equal(t, `{"dir":"`+dst.Home+`\/code","plain":"`+dst.Home+`/notes"}`, imported)
 }
 
+func TestLayoutsTargetExpandsVars(t *testing.T) {
+	env := testEnv(t, nil)
+	env.Vars = map[string]string{"CODE": filepath.Join(env.Home, "code")}
+	l := NewLayouts(env, manifest.Layouts{Src: "layouts", Dst: "${CODE}/x"})
+	assert.Equal(t, filepath.Join(env.Home, "code", "x"), l.Dst)
+}
+
 func TestLayoutsImportBacksUpExisting(t *testing.T) {
 	env := testEnv(t, map[string]string{"app/layouts/old/windows.json": "{}"})
 	l := testLayouts(t, env)

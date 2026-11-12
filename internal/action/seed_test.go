@@ -32,6 +32,13 @@ func TestSeedRenderOnlyListedSecrets(t *testing.T) {
 	assert.Equal(t, "token = \"abc\"\nhome = \"${HOME}\"\n", string(out))
 }
 
+func TestSeedTargetExpandsVars(t *testing.T) {
+	env := testEnv(t, map[string]string{"template": "x"})
+	env.Vars = map[string]string{"CODE": filepath.Join(env.Home, "code")}
+	s := NewSeed(env, manifest.Seed{Src: "template", Dst: "${CODE}/x"})
+	assert.Equal(t, filepath.Join(env.Home, "code", "x"), s.Dst)
+}
+
 func TestSeedLifecycle(t *testing.T) {
 	ctx := context.Background()
 	env := testEnv(t, map[string]string{"tool/config": "v1 ${TOKEN}"})
