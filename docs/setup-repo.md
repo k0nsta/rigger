@@ -4,7 +4,7 @@ rigger reads one git repo you own (usually private). Start from [`example/`](../
 
 ```
 manifest.yaml          # required: what can be installed and linked
-hosts/<name>.yaml      # written by rigger: what each machine picked
+hosts/<name>.yaml      # written by rigger; edit vars: by hand (rigger keeps them)
 brew/*.Brewfile        # anything else is yours: Brewfiles, dotfiles, scripts …
 zsh/.zshrc
 scripts/install-x.sh
@@ -17,6 +17,8 @@ Check it any time: `rigger validate` checks the checkout you are in, or the reme
 ```yaml
 version: 1                      # schema version, required
 groups: [base, packages, shell] # optional: display order; enforced when present
+vars:
+  CODE: ~/github.com             # optional path defaults for every machine
 
 profiles:                       # preselections; everything stays toggleable in the TUI
   laptop:
@@ -59,6 +61,21 @@ manual:                         # shown after a run with ✓/✗
   - {path: ~/.ssh/config, note: copy by hand}
 ```
 
+`vars` values must be `~`, `~/…` or an absolute path, and cannot contain `${…}`. Names match
+`[A-Z][A-Z0-9_]*`. `HOME`, `PATH`, `USER`, `SHELL`, `TMPDIR`, `NONINTERACTIVE`, and names beginning
+with `RIGGER_`, `SUDO_`, `HOMEBREW_` or `GIT_` are reserved. A variable cannot also be listed as a
+secret for a command or seed.
+
+Variables are exported to each command's `check` and `run` environment, and `${NAME}` is expanded
+in `dst` paths for `links`, `seeds` and `layouts`. Variables do not expand in `src` paths, seed
+templates (which use their declared `${SECRETS}` instead), or `manual:` paths.
+
+Use a stable link when a shared config needs one path but a resource lives in a different location
+on each machine. For example, set `CODE` to `~/github.com` by default and override it to `~/code`
+on one host, then have a command create `~/.local/share/tool` as a symlink to `$CODE/tool`. Point
+the shared config at `~/.local/share/tool`. The config keeps the same path everywhere while the
+symlink target follows each host's `CODE` value.
+
 ### Actions
 
 | field | does | when the target already exists |
@@ -96,9 +113,10 @@ Unique ids, known groups/platforms, every `src`, `brewfile` and repo script exis
 
 ## hosts/\<name\>.yaml
 
-Written by rigger after a run; commit it with `rigger sync`. It stores only how this machine
-differs from its profile, so components and default excludes you add to the profile later reach
-every machine on its next sync.
+Written by rigger after a run; edit its `vars:` by hand and rigger keeps those values when it
+rewrites the file. Commit it with `rigger sync`. It stores only how this machine differs from its
+profile, so components and default excludes you add to the profile later reach every machine on
+its next sync.
 
 ```yaml
 profile: laptop
@@ -107,7 +125,12 @@ remove: [apps]             # profile components unpicked here
 exclude_packages: [fx]     # Brewfile entries unpicked here
 include_packages: [zoom]   # profile default excludes picked here anyway
 ignore_packages: [steam]   # installed here on purpose, not in any Brewfile
+vars:
+  CODE: ~/code              # override a manifest default for this machine
 ```
+
+If a pulled manifest or host change moves a variable-expanded destination, rigger applies the
+resource at its new path. It leaves the old path in place; rigger never removes old destinations.
 
 `--profile` naming the host's own profile keeps these adds and removes; another profile starts fresh. Components that no longer exist in the manifest are ignored. The older `components: [...]`
 full list is still read.
@@ -146,6 +169,10 @@ Then `rigger sync` shares it.
 `rigger sync`: export layouts → offer stray Homebrew packages (add to a Brewfile or ignore) → you pick changed files → credential gate (built-in patterns, plus `gitleaks` when installed) → commit `sync(<host>): …` → `git pull --rebase` (a conflict is aborted; live configs never get conflict markers) → apply what other machines added (each listed with why it is picked: its profile, `hosts/<name>.yaml`, or `needed by`; `-n` drops one from this host for good by writing `remove`) → push.
 
 A link that a tool replaced with a real file of other content (`sed -i`, an editor's atomic save) is never relinked silently: `sync` asks to adopt it, keep the repo version (your file goes to a backup, and the backup path is printed) or leave it; `sync --yes` leaves it and says `rigger adopt <path>`. A pull conflict is aborted, and the message names the files and how to finish by hand. Tracked changes you leave out of the commit stay as they are: the pull sets them aside and puts them back. Only when another machine changed one of those same files does sync stop before pulling, naming the file, so the two edits never mix.
+
+Before the commit question, sync warns if a changed linked file replaces a tracked `~/…` path with
+this machine's absolute home path. Review the diff and leave that machine-specific change out if it
+should not be shared. With `--yes`, sync still prints the warning and commits the file.
 
 ssh runs in batch mode and a pull or push gets 90 s: a passphrase, host-key question, unapproved agent key or dead network fails with the reason instead of hanging.
 

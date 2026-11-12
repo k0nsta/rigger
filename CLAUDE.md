@@ -21,7 +21,7 @@ make build    # bin/rigger
 
 ## Model
 
-- Catalog = `manifest.yaml` + `brew/*.Brewfile`; per-machine delta = `hosts/<name>.yaml` (`profile`, `add`, `remove`, `exclude_packages`, `include_packages`, `ignore_packages`).
+- Catalog = `manifest.yaml` + `brew/*.Brewfile`; per-machine delta = `hosts/<name>.yaml` (`profile`, `add`, `remove`, `exclude_packages`, `include_packages`, `ignore_packages`, `vars`).
 - rigger never uninstalls; apps already present outside brew count as installed.
 - The TUI shows a Brewfile package's description from the comment line right above it.
 
@@ -34,7 +34,7 @@ make build    # bin/rigger
 
 ## Next
 
-Land order of plans: `20261028-host-vars` (v0.1.3) → `20261030-agentic-first` (v0.2.0) → `20261027-sync-tui` (v0.3.0) → `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`.
+Land `20261028-host-vars` and `20261112-public-fixes` together on one branch for v0.1.3, then `20261030-agentic-first` (v0.2.0) → `20261027-sync-tui` (v0.3.0) → `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`.
 
 ## Releases
 
