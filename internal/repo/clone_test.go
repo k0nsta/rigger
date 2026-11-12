@@ -133,12 +133,86 @@ func TestCloneHTTPSAsksForTokenOnce(t *testing.T) {
 
 func TestCloneSSHFailureDoesNotPrompt(t *testing.T) {
 	r := mocks.NewMockRunner(gomock.NewController(t))
-	r.EXPECT().Run(gomock.Any(), gomock.Any()).Return(sh.Result{Code: 128, Output: "git@github.com: Permission denied (publickey).\n"}, nil)
+	r.EXPECT().Run(gomock.Any(), cmdIs("git config --global --get core.sshCommand")).Return(sh.Result{Code: 1}, nil)
+	r.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, c sh.Cmd) (sh.Result, error) {
+		assert.Equal(t, []string{"GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new"}, c.Env)
+		return sh.Result{Code: 128, Output: "git@github.com: Permission denied (publickey).\n"}, nil
+	})
 	err := Clone(context.Background(), r, "git@github.com:you/x.git", filepath.Join(t.TempDir(), "x"), func(string) (string, error) {
 		t.Fatal("must not prompt for ssh URLs")
 		return "", nil
 	}, nil)
 	require.ErrorContains(t, err, "Permission denied (publickey)")
+}
+
+func TestCloneAcceptsNewHostKey(t *testing.T) {
+	sshURL := "git@github.com:you/x.git"
+	httpsURL := "https://github.com/you/x.git"
+
+	t.Run("ssh gets accept-new", func(t *testing.T) {
+		t.Setenv("GIT_SSH_COMMAND", "")
+		t.Setenv("GIT_SSH", "")
+		dir := filepath.Join(t.TempDir(), "ssh")
+		r := mocks.NewMockRunner(gomock.NewController(t))
+		r.EXPECT().Run(gomock.Any(), cmdIs("git config --global --get core.sshCommand")).Return(sh.Result{Code: 1}, nil)
+		r.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, c sh.Cmd) (sh.Result, error) {
+			assert.Equal(t, "git clone "+sshURL+" "+dir, c.String())
+			assert.Equal(t, []string{"GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new"}, c.Env)
+			return sh.Result{}, nil
+		})
+		require.NoError(t, Clone(context.Background(), r, sshURL, dir, nil, nil))
+	})
+
+	t.Run("https does not get accept-new", func(t *testing.T) {
+		r := mocks.NewMockRunner(gomock.NewController(t))
+		r.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, c sh.Cmd) (sh.Result, error) {
+			assert.Empty(t, c.Env)
+			return sh.Result{}, nil
+		})
+		require.NoError(t, Clone(context.Background(), r, httpsURL, filepath.Join(t.TempDir(), "https"), nil, nil))
+	})
+
+	for _, tc := range []struct {
+		name, key, value string
+		config           bool
+	}{
+		{name: "GIT_SSH_COMMAND", key: "GIT_SSH_COMMAND", value: "ssh -F ~/.ssh/custom"},
+		{name: "GIT_SSH", key: "GIT_SSH", value: "/custom/ssh"},
+		{name: "global core.sshCommand", config: true},
+	} {
+		t.Run("keeps "+tc.name, func(t *testing.T) {
+			t.Setenv("GIT_SSH_COMMAND", "")
+			t.Setenv("GIT_SSH", "")
+			if !tc.config {
+				t.Setenv(tc.key, tc.value)
+			}
+			r := mocks.NewMockRunner(gomock.NewController(t))
+			if tc.config {
+				r.EXPECT().Run(gomock.Any(), cmdIs("git config --global --get core.sshCommand")).Return(sh.Result{Output: "ssh -F ~/.ssh/custom\n"}, nil)
+			}
+			r.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, c sh.Cmd) (sh.Result, error) {
+				assert.Empty(t, c.Env, "clone must not override the user's SSH setting")
+				return sh.Result{}, nil
+			})
+			require.NoError(t, Clone(context.Background(), r, sshURL, filepath.Join(t.TempDir(), "ssh"), nil, nil))
+		})
+	}
+}
+
+func TestCloneErrorNamesCause(t *testing.T) {
+	for _, tc := range []struct{ name, output, cause string }{
+		{name: "host key", output: "Cloning into '/tmp/x'...\nHost key verification failed.\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n", cause: "Host key verification failed."},
+		{name: "publickey", output: "Cloning into '/tmp/x'...\ngit@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n", cause: "Permission denied (publickey)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := mocks.NewMockRunner(gomock.NewController(t))
+			r.EXPECT().Run(gomock.Any(), cmdIs("git config --global --get core.sshCommand")).Return(sh.Result{Code: 1}, nil)
+			r.EXPECT().Run(gomock.Any(), gomock.Any()).Return(sh.Result{Code: 128, Output: tc.output}, nil)
+			err := Clone(context.Background(), r, "git@github.com:you/x.git", filepath.Join(t.TempDir(), "x"), nil, nil)
+			require.ErrorContains(t, err, tc.cause)
+			assert.NotContains(t, err.Error(), "and the repository exists")
+		})
+	}
 }
 
 func TestUseSSHOrigin(t *testing.T) {

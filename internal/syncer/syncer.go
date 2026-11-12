@@ -258,7 +258,7 @@ func (s *Syncer) gate(ctx context.Context, files []string) error {
 		return err
 	}
 	if scan.Code != 0 {
-		return fmt.Errorf("%w: gitleaks: %s", ErrLeak, lastLines(scan.Output, 6))
+		return fmt.Errorf("%w: gitleaks: %s", ErrLeak, sh.LastLines(scan.Output, 6))
 	}
 	return nil
 }
@@ -269,14 +269,6 @@ func redact(b []byte) string {
 		return s[:8]
 	}
 	return s[:min(4, len(s))]
-}
-
-func lastLines(out string, n int) string {
-	lines := sh.Lines(out)
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	return strings.Join(lines, " | ")
 }
 
 // ErrConflict means pull --rebase hit a conflict and was aborted.
@@ -354,7 +346,7 @@ func (s *Syncer) Pull(ctx context.Context) error {
 		_, _ = s.git(ctx, "rebase", "--abort")
 		return &ConflictError{Files: files}
 	}
-	return fmt.Errorf("git pull failed: %s", lastLines(res.Output, 4))
+	return fmt.Errorf("git pull failed: %s", sh.LastLines(res.Output, 4))
 }
 
 // changedUpstream fetches and returns the files of dirty that the upstream changed since the
@@ -365,7 +357,7 @@ func (s *Syncer) changedUpstream(ctx context.Context, dirty []string) ([]string,
 		return nil, err
 	}
 	if res.Code != 0 {
-		return nil, fmt.Errorf("git fetch failed: %s", lastLines(res.Output, 4))
+		return nil, fmt.Errorf("git fetch failed: %s", sh.LastLines(res.Output, 4))
 	}
 	out, err := s.mustGit(ctx, "diff", "--name-only", "HEAD...@{u}")
 	if err != nil {

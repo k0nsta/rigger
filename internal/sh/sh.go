@@ -232,6 +232,18 @@ func Lines(out string) []string {
 	return lines
 }
 
+// LastLines returns the last n non-empty output lines joined with " | ".
+func LastLines(out string, n int) string {
+	lines := Lines(out)
+	if n <= 0 {
+		return ""
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, " | ")
+}
+
 // Tilde writes home as ~ in text shown to the user (paths, git's own messages).
 func Tilde(home, text string) string {
 	if len(home) < 2 {

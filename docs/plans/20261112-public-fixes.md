@@ -93,9 +93,9 @@
 - Modify: `internal/sh/sh_test.go`
 - Modify: `internal/syncer/syncer.go`
 
-- [ ] `accept-new` for an ssh clone unless the user set an ssh command; `lastLines` moved to `internal/sh`; the clone error keeps ssh's cause
-- [ ] write tests: ssh vs HTTPS and the three user settings kept (`TestCloneAcceptsNewHostKey`); the error text from a host-key failure and a publickey failure (`TestCloneErrorNamesCause`); `LastLines` in `internal/sh`
-- [ ] run tests - must pass before task 4
+- [x] `accept-new` for an ssh clone unless the user set an ssh command; `lastLines` moved to `internal/sh`; the clone error keeps ssh's cause
+- [x] write tests: ssh vs HTTPS and the three user settings kept (`TestCloneAcceptsNewHostKey`); the error text from a host-key failure and a publickey failure (`TestCloneErrorNamesCause`); `LastLines` in `internal/sh`
+- [x] run tests - must pass before task 4
 
 ### Task 4: docs that match the code
 **Files:**
