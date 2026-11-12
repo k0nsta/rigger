@@ -87,7 +87,7 @@ hosts/<host>.pub        # machine public key
 
 ## What Goes Where
 - **Implementation Steps**: rigger code, tests, `docs/setup-repo.md`, `example/`.
-- **Post-Completion**: machine-setup migration, server enrollment, AI memory, retiring the AirDrop bundle.
+- **Post-Completion**: setup-repo migration, server enrollment, AI memory, retiring the AirDrop bundle.
 
 ## Implementation Steps
 
@@ -233,9 +233,9 @@ hosts/<host>.pub        # machine public key
 ## Post-Completion
 *Items requiring manual intervention or external systems - no checkboxes, informational only*
 
-**machine-setup migration** (run by the user; the agent never reads `~/.pgpass` or the pgcli config)
-- `rigger vault init`; `rigger vault add` for `~/.ssh/config`, `~/.headless-browser/.env`, `~/.pgpass`, `~/.config/pgcli/config`, `~/.zshrc.local`, `~/.netrc`, `~/.docker/config.json` (as wanted); encrypt `secrets.env` as `vault/secrets.env.age`.
-- `keys: {github: account, authorize: [<server aliases>]}`; `github: deploy` in the daughter's Mac host file; the shared ssh config uses `~/.ssh/id_ed25519` everywhere.
+**setup-repo migration** (run by the user; the agent never reads `<home>/database-tool/.pgpass` or a database client config)
+- `rigger vault init`; `rigger vault add` for `~/.ssh/config`, `<home>/tool/.env`, `<home>/database-tool/.pgpass`, `<home>/.config/database-tool/config`, `<home>/.zshrc.local`, `<home>/.netrc`, `<home>/.config/container-tool/config.json` (as wanted); encrypt `secrets.env` as `vault/secrets.env.age`.
+- `keys: {github: account, authorize: [<server aliases>]}`; `github: deploy` in a secondary machine's host file; the shared ssh config uses `~/.ssh/id_ed25519` everywhere.
 - `claude/.gitignore`: un-ignore `projects/*/memory/`.
 - From an account machine: `rigger keys enroll <host>` for every existing machine, then remove the old shared `id_rsa` from servers and GitHub.
 

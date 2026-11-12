@@ -113,10 +113,10 @@
 - Modify: `docs/plans/20261008-app-checklist.md`
 - Modify: `docs/plans/20261009-vault-and-machine-keys.md`
 
-- [ ] `CLAUDE.md`: "the maintainer's own setup repo" instead of its name and path; drop the archive repo's name
-- [ ] the four plans: neutral machine, repo and path names; no named people or private tool paths
-- [ ] the home-path grep in Acceptance Criteria finds nothing
-- [ ] run tests - must pass before task 6
+- [x] `CLAUDE.md`: "the maintainer's own setup repo" instead of its name and path; drop the archive repo's name
+- [x] the four plans: neutral machine, repo and path names; no named people or private tool paths
+- [x] the home-path grep in Acceptance Criteria finds nothing
+- [x] run tests - must pass before task 6
 
 ### Task 6: [Final] Update documentation
 **Files:**

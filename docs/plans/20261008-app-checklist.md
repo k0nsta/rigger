@@ -4,7 +4,7 @@
 - GUI apps (Zoom, Slack, Spotify…) carry no config worth tracking, update themselves and often come from IT, the App Store or a vendor installer. Treating them like CLI tools makes runs fail (pkg casks, sudo, vendor quirks) and fills `sync` with stray noise.
 - A component marked `best_effort: true` (Brewfile components only) still installs its Brewfile, but packages that fail become an "install manually" checklist: the component ends **warned**, not failed, its other actions and its dependents still run, and `rigger apply` / the TUI exit 0.
 - `sync` stops offering casks the user installed by hand, except casks matching the manifest's `strays.casks` globs (e.g. `font-*`). Formulae are still offered.
-- Configs, CLI tools, fonts and apps with tracked config (agterm) are unchanged.
+- Configs, CLI tools, fonts and apps with tracked config (terminal app) are unchanged.
 
 ## Context (from discovery)
 - `internal/manifest/manifest.go`: `Component` (no per-component failure policy), top-level `Manifest`; `validate.go` checks fields.
@@ -66,7 +66,7 @@ components:
 
 ## What Goes Where
 - **Implementation Steps**: rigger code, tests, `docs/setup-repo.md`.
-- **Post-Completion**: machine-setup manifest changes and a VM run.
+- **Post-Completion**: setup-repo manifest changes and a VM run.
 
 ## Implementation Steps
 
@@ -172,7 +172,7 @@ components:
 ## Post-Completion
 *Items requiring manual intervention or external systems - no checkboxes, informational only*
 
-**machine-setup**
+**Setup repository**
 - `apps`: `best_effort: true`.
 - Split `leapp`, `postman`, `dbeaver-community` out of `work.Brewfile` into `brew/work-apps.Brewfile` + a best-effort `work-apps` component in the work profile, so kubectl/helm failures still fail.
 - `strays: {casks: ["font-*"]}`.
