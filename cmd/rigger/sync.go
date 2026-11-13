@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -49,7 +50,10 @@ func (c *cli) sync(ctx context.Context, args []string) error {
 	sy := &syncer.Syncer{Repo: s.Repo, Runner: s.Exec}
 	in := bufio.NewReader(c.in)
 
-	c.exportLayouts(s, sel)
+	retired := c.exportLayouts(ctx, s, sel, sy)
+	if err := c.dropRetiredLayouts(ctx, sy, retired, in, yes); err != nil {
+		return err
+	}
 	if s.Platform == manifest.Darwin {
 		if err := c.handleStrays(ctx, s, sel, in, yes); err != nil {
 			return err
@@ -86,13 +90,12 @@ func (c *cli) sync(ctx context.Context, args []string) error {
 	}
 
 	fmt.Fprintln(c.out, "pulling…")
-	if err := sy.Pull(ctx); err != nil {
+	if err := c.pull(ctx, sy, in, yes); err != nil {
 		if errors.Is(err, syncer.ErrConflict) {
 			return fmt.Errorf("%w\nresolve it by hand:\n%s", err, conflictFix(sh.Tilde(s.Home, s.Repo)))
 		}
 		if errors.Is(err, syncer.ErrUncommitted) {
-			return fmt.Errorf("%w\n  commit them in this sync (run rigger sync again and pick them), or set them aside: git -C %s stash, rigger sync, git -C %s stash pop",
-				err, sh.Tilde(s.Home, s.Repo), sh.Tilde(s.Home, s.Repo))
+			return fmt.Errorf("%w\n  run rigger sync again and either pick them to commit your edit, or drop your edit when it asks", err)
 		}
 		return err
 	}
@@ -342,15 +345,76 @@ func (c *cli) printEvent(ev engine.Event) {
 	}
 }
 
-// exportLayouts snapshots app layouts of selected components for this host.
-func (c *cli) exportLayouts(s *app.Session, sel app.Selection) {
+// pull pulls, and when files left out of the commit also changed on the remote, offers to drop
+// the local edits to them (default no: they are the person's edits) and pulls again.
+func (c *cli) pull(ctx context.Context, sy *syncer.Syncer, in *bufio.Reader, yes bool) error {
+	err := sy.Pull(ctx)
+	var both *syncer.UncommittedError
+	if yes || !errors.As(err, &both) {
+		return err
+	}
+	fmt.Fprintf(c.out, "%v\n", err)
+	if !c.confirm(in, "drop your edits to them and take the repo's version? [y/N] ") {
+		return fmt.Errorf("%w: sync stopped, your edits are kept", syncer.ErrUncommitted)
+	}
+	changes, cerr := sy.Changes(ctx)
+	if cerr != nil {
+		return cerr
+	}
+	drop := map[string]bool{}
+	for _, f := range both.Files {
+		drop[f] = true
+	}
+	var discard []syncer.Change
+	for _, ch := range changes {
+		if drop[ch.Path] {
+			discard = append(discard, ch)
+		}
+	}
+	if err := sy.Discard(ctx, discard); err != nil {
+		return err
+	}
+	fmt.Fprintf(c.out, "dropped your edits to %d file(s)\n", len(discard))
+	return sy.Pull(ctx)
+}
+
+// retiredLayouts is a layouts component this checkout still has but the remote's manifest
+// no longer has (or no longer snapshots into the same dir).
+type retiredLayouts struct {
+	name string
+	dir  string // repo-relative snapshot dir of this host, slash-separated
+}
+
+// exportLayouts snapshots app layouts of selected components for this host. A component the
+// remote removed since this checkout last agreed with it is not exported: its snapshot would
+// only clash with the pull that deletes it. Those are returned. A component that is new or moved
+// only here is exported; without an answer from the remote every component is exported as before.
+func (c *cli) exportLayouts(ctx context.Context, s *app.Session, sel app.Selection, sy *syncer.Syncer) []retiredLayouts {
 	res, err := s.Manifest.Resolve(s.Platform, sel.Picked)
 	if err != nil {
-		return
+		return nil
 	}
+	var base, upstream *manifest.Manifest
+	fetched := false
+	var retired []retiredLayouts
 	for _, id := range res.Order {
 		comp := s.Manifest.Component(id)
 		if comp.Layouts == nil {
+			continue
+		}
+		if !fetched {
+			base, upstream, fetched = remoteManifests(ctx, sy), nil, true
+			if base != nil {
+				upstream = parseManifest(sy.UpstreamFile(ctx, manifest.FileName))
+			}
+		}
+		src := layoutsSrc(comp)
+		if base != nil && upstream != nil && layoutsSrc(base.Component(id)) == src && layoutsSrc(upstream.Component(id)) != src {
+			name := comp.Title
+			if name == "" {
+				name = id
+			}
+			retired = append(retired, retiredLayouts{name: name, dir: path.Join(src, s.Host)})
 			continue
 		}
 		l := action.NewLayouts(s.Engine.Env, *comp.Layouts)
@@ -360,6 +424,69 @@ func (c *cli) exportLayouts(s *app.Session, sel app.Selection) {
 			fmt.Fprintf(c.out, "exported %d layout file(s) of %s\n", n, id)
 		}
 	}
+	return retired
+}
+
+// layoutsSrc is a component's snapshot dir, cleaned and slash-separated; "" without layouts.
+func layoutsSrc(comp *manifest.Component) string {
+	if comp == nil || comp.Layouts == nil {
+		return ""
+	}
+	return path.Clean(filepath.ToSlash(comp.Layouts.Src))
+}
+
+// remoteManifests fetches and returns the manifest at the merge base of this checkout and its
+// upstream; nil when offline, without an upstream, or when it does not parse (a newer schema),
+// so callers fall back to the local manifest.
+func remoteManifests(ctx context.Context, sy *syncer.Syncer) *manifest.Manifest {
+	if err := sy.Fetch(ctx); err != nil {
+		return nil
+	}
+	return parseManifest(sy.BaseFile(ctx, manifest.FileName))
+}
+
+func parseManifest(data []byte, ok bool) *manifest.Manifest {
+	if !ok {
+		return nil
+	}
+	m, err := manifest.Parse(data)
+	if err != nil {
+		return nil
+	}
+	return m
+}
+
+// dropRetiredLayouts offers to drop this host's leftover snapshot files of layouts components
+// the remote removed (default yes: they are exports of the app's state, which stays as it is).
+func (c *cli) dropRetiredLayouts(ctx context.Context, sy *syncer.Syncer, retired []retiredLayouts, in *bufio.Reader, yes bool) error {
+	if len(retired) == 0 {
+		return nil
+	}
+	changes, err := sy.Changes(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range retired {
+		var left []syncer.Change
+		for _, ch := range changes {
+			if strings.HasPrefix(ch.Path, r.dir+"/") {
+				left = append(left, ch)
+			}
+		}
+		fmt.Fprintf(c.out, "%s: removed from the repo on the remote, so not exported here any more\n", r.name)
+		if len(left) == 0 {
+			continue
+		}
+		prompt := fmt.Sprintf("  drop this machine's %d changed snapshot file(s) in %s? the app's own files stay as they are [Y/n] ", len(left), r.dir)
+		if !yes && !c.confirmDefault(in, prompt, true) {
+			continue
+		}
+		if err := sy.Discard(ctx, left); err != nil {
+			return err
+		}
+		fmt.Fprintf(c.out, "  dropped %d file(s) in %s\n", len(left), r.dir)
+	}
+	return nil
 }
 
 // warnHead warns when the setup repo is not on its default branch.

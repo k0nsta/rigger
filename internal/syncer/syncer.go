@@ -324,12 +324,12 @@ func (e *UncommittedError) Unwrap() error { return ErrUncommitted }
 // back (autostash) only when the remote did not change those files, so putting them back
 // cannot conflict; otherwise the pull stops before touching anything.
 func (s *Syncer) Pull(ctx context.Context) error {
-	out, err := s.mustGit(ctx, "diff", "--name-only", "HEAD")
+	out, err := s.mustGit(ctx, "diff", "--name-only", "-z", "HEAD")
 	if err != nil {
 		return err
 	}
 	stash := "--no-autostash"
-	if dirty := sh.Lines(out); len(dirty) > 0 {
+	if dirty := nulSplit(out); len(dirty) > 0 {
 		both, err := s.changedUpstream(ctx, dirty)
 		if err != nil {
 			return err
@@ -351,8 +351,8 @@ func (s *Syncer) Pull(ctx context.Context) error {
 			continue
 		}
 		var files []string
-		if out, err := s.mustGit(ctx, "diff", "--name-only", "--diff-filter=U"); err == nil {
-			files = sh.Lines(out)
+		if out, err := s.mustGit(ctx, "diff", "--name-only", "-z", "--diff-filter=U"); err == nil {
+			files = nulSplit(out)
 		}
 		_, _ = s.git(ctx, "rebase", "--abort")
 		return &ConflictError{Files: files}
@@ -370,12 +370,12 @@ func (s *Syncer) changedUpstream(ctx context.Context, dirty []string) ([]string,
 	if res.Code != 0 {
 		return nil, fmt.Errorf("git fetch failed: %s", sh.LastLines(res.Output, 4))
 	}
-	out, err := s.mustGit(ctx, "diff", "--name-only", "HEAD...@{u}")
+	out, err := s.mustGit(ctx, "diff", "--name-only", "-z", "HEAD...@{u}")
 	if err != nil {
 		return nil, err
 	}
 	remote := map[string]bool{}
-	for _, f := range sh.Lines(out) {
+	for _, f := range nulSplit(out) {
 		remote[f] = true
 	}
 	var both []string
@@ -385,6 +385,91 @@ func (s *Syncer) changedUpstream(ctx context.Context, dirty []string) ([]string,
 		}
 	}
 	return both, nil
+}
+
+// Fetch updates the remote-tracking branch without touching the checkout.
+func (s *Syncer) Fetch(ctx context.Context) error {
+	res, err := s.netGit(ctx, "fetch", "-q")
+	if err != nil {
+		return err
+	}
+	if res.Code != 0 {
+		return fmt.Errorf("git fetch failed: %s", sh.LastLines(res.Output, 4))
+	}
+	return nil
+}
+
+// nulSplit splits git's -z output into paths, unquoted.
+func nulSplit(out string) []string {
+	var paths []string
+	for _, p := range strings.Split(out, "\x00") {
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths
+}
+
+// UpstreamFile returns path as it is on the upstream branch after the last fetch; ok is false
+// when there is no upstream or the file is not there.
+func (s *Syncer) UpstreamFile(ctx context.Context, path string) (data []byte, ok bool) {
+	return s.show(ctx, "@{u}", path)
+}
+
+// BaseFile returns path as it was where this checkout and the upstream last agreed (their
+// merge base); ok is false without an upstream or when the file was not there.
+func (s *Syncer) BaseFile(ctx context.Context, path string) (data []byte, ok bool) {
+	res, err := s.Runner.Run(ctx, sh.Cmd{Path: "git", Args: []string{"-C", s.Repo, "merge-base", "HEAD", "@{u}"}, SplitStdout: true})
+	if err != nil || res.Code != 0 {
+		return nil, false
+	}
+	return s.show(ctx, strings.TrimSpace(res.Stdout), path)
+}
+
+func (s *Syncer) show(ctx context.Context, rev, path string) ([]byte, bool) {
+	res, err := s.Runner.Run(ctx, sh.Cmd{Path: "git", Args: []string{"-C", s.Repo, "show", rev + ":" + path}, SplitStdout: true})
+	if err != nil || res.Code != 0 {
+		return nil, false
+	}
+	return []byte(res.Stdout), true
+}
+
+// Discard drops the local changes to files: a tracked file goes back to HEAD (index and
+// worktree), an untracked one is removed. Directories left empty are removed too, so the repo
+// does not keep a dir no component uses.
+func (s *Syncer) Discard(ctx context.Context, changes []Change) error {
+	var tracked []string
+	for _, c := range changes {
+		if c.Code == "??" {
+			if err := os.Remove(filepath.Join(s.Repo, c.Path)); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			continue
+		}
+		tracked = append(tracked, c.Path)
+		if c.From != "" {
+			tracked = append(tracked, c.From)
+		}
+	}
+	if len(tracked) > 0 {
+		if _, err := s.mustGit(ctx, append([]string{"restore", "--source=HEAD", "--staged", "--worktree", "--"}, tracked...)...); err != nil {
+			return err
+		}
+	}
+	for _, c := range changes {
+		s.pruneEmptyDirs(filepath.Dir(c.Path))
+	}
+	return nil
+}
+
+// pruneEmptyDirs removes dir (repo-relative) and its parents while they are empty.
+func (s *Syncer) pruneEmptyDirs(dir string) {
+	for dir != "." && dir != "" && dir != string(filepath.Separator) {
+		if err := os.Remove(filepath.Join(s.Repo, dir)); err != nil {
+			return // not empty, or gone
+		}
+		dir = filepath.Dir(dir)
+	}
 }
 
 // Push publishes local commits.

@@ -212,6 +212,28 @@ func TestPullStopsWhenTheRemoteChangedALeftOutFile(t *testing.T) {
 	assert.Equal(t, "b edit, not committed\n", testutil.ReadFile(t, filepath.Join(b.Repo, "zsh", ".zshrc")), "the edit is untouched")
 }
 
+// git quotes unusual names in plain output; the paths must match status's raw ones.
+func TestPullNamesNonASCIIFilesAsTheyAre(t *testing.T) {
+	ctx := context.Background()
+	a, b := machines(t)
+	name := "notes/café\tdraft.txt"
+	testutil.WriteFile(t, filepath.Join(a.Repo, name), "one\n")
+	commit(t, a, "a", []string{name})
+	require.NoError(t, a.Push(ctx))
+	require.NoError(t, b.Pull(ctx))
+	testutil.WriteFile(t, filepath.Join(a.Repo, name), "a edit\n")
+	commit(t, a, "a", []string{name})
+	require.NoError(t, a.Push(ctx))
+
+	testutil.WriteFile(t, filepath.Join(b.Repo, name), "b edit\n")
+	var uncommitted *UncommittedError
+	require.ErrorAs(t, b.Pull(ctx), &uncommitted)
+	assert.Equal(t, []string{name}, uncommitted.Files)
+	changes, err := b.Changes(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []Change{{Path: name, Code: " M"}}, changes, "the same spelling as Changes")
+}
+
 func TestGateRefusesCredentials(t *testing.T) {
 	ctx := context.Background()
 	// fake tokens, split so secret scanners do not flag the source
@@ -272,6 +294,56 @@ func TestCommitSkipsFilesCommittedMeanwhile(t *testing.T) {
 		assert.Equal(t, "sync(a): zsh/.zshrc\n", git(t, a.Repo, "log", "-1", "--format=%s"))
 		assert.Equal(t, "zsh/.zshrc\n", git(t, a.Repo, "show", "--name-only", "--format=", "HEAD"))
 	})
+}
+
+func TestDiscard(t *testing.T) {
+	ctx := context.Background()
+	a, _ := machines(t)
+	testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "edited\n")
+	testutil.WriteFile(t, filepath.Join(a.Repo, "staged.txt"), "staged new\n")
+	git(t, a.Repo, "add", "staged.txt")
+	testutil.WriteFile(t, filepath.Join(a.Repo, "layouts", "box", "new.json"), "{}\n")
+	testutil.WriteFile(t, filepath.Join(a.Repo, "keep.txt"), "not discarded\n")
+
+	changes, err := a.Changes(ctx)
+	require.NoError(t, err)
+	var drop []Change
+	for _, c := range changes {
+		if c.Path != "keep.txt" {
+			drop = append(drop, c)
+		}
+	}
+	require.Len(t, drop, 3)
+	require.NoError(t, a.Discard(ctx, drop))
+
+	assert.Equal(t, "one\n", testutil.ReadFile(t, filepath.Join(a.Repo, "zsh", ".zshrc")))
+	assert.NoFileExists(t, filepath.Join(a.Repo, "staged.txt"))
+	assert.NoFileExists(t, filepath.Join(a.Repo, "layouts", "box", "new.json"))
+	assert.NoDirExists(t, filepath.Join(a.Repo, "layouts"), "dirs left empty go too")
+	assert.Equal(t, "?? keep.txt\n", git(t, a.Repo, "status", "--porcelain=v1", "--untracked-files=all"))
+}
+
+func TestUpstreamFile(t *testing.T) {
+	ctx := context.Background()
+	a, b := machines(t)
+	testutil.WriteFile(t, filepath.Join(b.Repo, "manifest.yaml"), "version: 1\n# from b\n")
+	commit(t, b, "b", []string{"manifest.yaml"})
+	require.NoError(t, b.Push(ctx))
+
+	data, ok := a.UpstreamFile(ctx, "manifest.yaml")
+	require.True(t, ok)
+	assert.Equal(t, "version: 1\n", string(data), "before a fetch the upstream is the last one seen")
+	require.NoError(t, a.Fetch(ctx))
+	data, ok = a.UpstreamFile(ctx, "manifest.yaml")
+	require.True(t, ok)
+	assert.Equal(t, "version: 1\n# from b\n", string(data))
+	assert.Equal(t, "version: 1\n", testutil.ReadFile(t, filepath.Join(a.Repo, "manifest.yaml")), "the checkout is untouched")
+
+	_, ok = a.UpstreamFile(ctx, "missing.yaml")
+	assert.False(t, ok)
+	git(t, a.Repo, "branch", "--unset-upstream")
+	_, ok = a.UpstreamFile(ctx, "manifest.yaml")
+	assert.False(t, ok, "no upstream")
 }
 
 // caskroom fakes `brew --caskroom` with an install receipt naming each cask's tap.
