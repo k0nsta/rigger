@@ -74,11 +74,15 @@ func (c *cli) sync(ctx context.Context, args []string) error {
 		fmt.Fprintf(c.out, "warning: %s\n", warning)
 	}
 	files := c.pickFiles(changes, in, yes)
-	if err := sy.Commit(ctx, s.Host, files); err != nil {
+	committed, err := sy.Commit(ctx, s.Host, files)
+	if err != nil {
 		return err
 	}
-	if len(files) > 0 {
-		fmt.Fprintf(c.out, "committed %d file(s)\n", len(files))
+	if len(committed) > 0 {
+		fmt.Fprintf(c.out, "committed %d file(s)\n", len(committed))
+	}
+	if gone := len(files) - len(committed); gone > 0 {
+		fmt.Fprintf(c.out, "%d picked file(s) have no change any more (committed meanwhile, maybe by another session): nothing to commit for them\n", gone)
 	}
 
 	fmt.Fprintln(c.out, "pulling…")
@@ -182,7 +186,7 @@ func (c *cli) applyFromRepo(ctx context.Context, s *app.Session, sel app.Selecti
 		if len(dropped) > 0 {
 			hostFile := filepath.ToSlash(filepath.Join("hosts", s.Host+".yaml"))
 			fmt.Fprintf(c.out, "dropped %s from %s (rigger never uninstalls: remove what is already there by hand)\n", strings.Join(dropped, ", "), hostFile)
-			if err := sy.Commit(ctx, s.Host, []string{hostFile}); err != nil {
+			if _, err := sy.Commit(ctx, s.Host, []string{hostFile}); err != nil {
 				return nil, nil, err
 			}
 		}
