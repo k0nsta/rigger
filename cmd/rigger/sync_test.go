@@ -326,12 +326,99 @@ func TestSyncStopsWhenALeftOutFileChangedOnTheRemote(t *testing.T) {
 	gitT(t, other, "push", "-q", "origin", "main")
 
 	testutil.WriteFile(t, filepath.Join(repo, "zsh", ".zshrc"), "# zsh, edited\n")
-	c, _ := newCLI(t, true)
-	c.in = strings.NewReader("none\n")
-	err := c.run(context.Background(), []string{"sync", "--repo", repo, "--host", "box"})
-	require.ErrorContains(t, err, "1 file(s) you left out of the commit changed on the remote too (zsh/.zshrc)")
-	assert.Contains(t, err.Error(), "commit them in this sync (run rigger sync again and pick them), or set them aside: git -C "+repo+" stash, rigger sync, git -C "+repo+" stash pop")
-	assert.Equal(t, "# zsh, edited\n", testutil.ReadFile(t, filepath.Join(repo, "zsh", ".zshrc")))
+
+	t.Run("keep the edit", func(t *testing.T) {
+		c, out := newCLI(t, true)
+		// commit none, then keep the edit
+		c.in = strings.NewReader("none\n\n")
+		err := c.run(context.Background(), []string{"sync", "--repo", repo, "--host", "box"})
+		assert.Contains(t, out.String(), "1 file(s) you left out of the commit changed on the remote too (zsh/.zshrc)")
+		require.ErrorContains(t, err, "sync stopped, your edits are kept")
+		assert.Contains(t, err.Error(), "run rigger sync again and either pick them to commit your edit, or drop your edit when it asks")
+		assert.NotContains(t, err.Error(), "stash")
+		assert.Equal(t, "# zsh, edited\n", testutil.ReadFile(t, filepath.Join(repo, "zsh", ".zshrc")))
+	})
+	t.Run("drop the edit", func(t *testing.T) {
+		c, out := newCLI(t, true)
+		// commit none, drop the edit, apply nothing
+		c.in = strings.NewReader("none\ny\nnone\n")
+		require.NoError(t, c.run(context.Background(), []string{"sync", "--repo", repo, "--host", "box"}))
+		assert.Contains(t, out.String(), "dropped your edits to 1 file(s)")
+		assert.Equal(t, "# zsh, from another machine\n", testutil.ReadFile(t, filepath.Join(repo, "zsh", ".zshrc")), "pulled the remote's version")
+		assert.Empty(t, gitT(t, repo, "status", "--porcelain"))
+	})
+}
+
+// layoutsRepo publishes a setup repo with a layouts component (laptop: zsh, layouts) and
+// this host's snapshot, and returns a clone of it and the remote.
+func layoutsRepo(t *testing.T) (repo, remote string) {
+	t.Helper()
+	seed := testutil.Tree(t, map[string]string{
+		"manifest.yaml": `version: 1
+profiles:
+  laptop: {components: [zsh, layouts]}
+components:
+  - {id: zsh, group: shell, links: [{src: zsh/.zshrc, dst: ~/.zshrc}]}
+  - {id: layouts, title: app layouts, group: shell, layouts: {src: app/layouts, dst: ~/app, files: ["*.json"]}}
+`,
+		"zsh/.zshrc":                  "# zsh\n",
+		"app/layouts/box/window.json": "{\"w\": 1}\n",
+		"hosts/box.yaml":              "profile: laptop\n",
+	})
+	gitT(t, seed, "init", "-q", "-b", "main")
+	gitT(t, seed, "add", ".")
+	gitT(t, seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
+	remote = filepath.Join(t.TempDir(), "setup.git")
+	gitT(t, "", "clone", "-q", "--bare", seed, remote)
+	repo = filepath.Join(t.TempDir(), "setup")
+	gitT(t, "", "clone", "-q", remote, repo)
+	gitT(t, repo, "config", "user.name", "box")
+	gitT(t, repo, "config", "user.email", "box@example.com")
+	return repo, remote
+}
+
+// Another machine removed the layouts component and its snapshots; this one still exported
+// its snapshot on every sync, so its pull always clashed with that delete.
+func TestSyncDropsLayoutsTheRemoteRemoved(t *testing.T) {
+	repo, remote := layoutsRepo(t)
+	other := filepath.Join(t.TempDir(), "other")
+	gitT(t, "", "clone", "-q", remote, other)
+	m := testutil.ReadFile(t, filepath.Join(other, "manifest.yaml"))
+	m = strings.Replace(m, "[zsh, layouts]", "[zsh]", 1)
+	m = m[:strings.Index(m, "  - {id: layouts")]
+	testutil.WriteFile(t, filepath.Join(other, "manifest.yaml"), m)
+	gitT(t, other, "rm", "-q", "-r", "app")
+	gitT(t, other, "-c", "user.name=o", "-c", "user.email=o@o", "commit", "-qam", "drop layouts")
+	gitT(t, other, "push", "-q", "origin", "main")
+
+	c, out := newCLI(t, true)
+	testutil.WriteFile(t, filepath.Join(c.home, "app", "window.json"), "{\"w\": 2}\n")
+	// what earlier syncs exported: a changed snapshot and a new one
+	testutil.WriteFile(t, filepath.Join(repo, "app", "layouts", "box", "window.json"), "{\"w\": 2}\n")
+	testutil.WriteFile(t, filepath.Join(repo, "app", "layouts", "box", "other.json"), "{}\n")
+	// drop the snapshot (enter = yes), apply nothing
+	c.in = strings.NewReader("\nnone\n")
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--repo", repo, "--host", "box"}))
+
+	got := out.String()
+	assert.Contains(t, got, "app layouts: removed from the repo on the remote, so not exported here any more")
+	assert.Contains(t, got, "dropped 2 file(s) in app/layouts/box")
+	assert.NotContains(t, got, "layout file(s) of layouts")
+	assert.NoDirExists(t, filepath.Join(repo, "app"), "the pull removed the snapshots")
+	assert.Empty(t, gitT(t, repo, "status", "--porcelain"))
+	assert.Equal(t, "{\"w\": 2}\n", testutil.ReadFile(t, filepath.Join(c.home, "app", "window.json")), "the app's own file stays")
+}
+
+// Without an answer from the remote, sync exports as it always did and the pull reports the error.
+func TestSyncExportsLayoutsWhenTheRemoteDoesNotAnswer(t *testing.T) {
+	repo, _ := layoutsRepo(t)
+	gitT(t, repo, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+	c, out := newCLI(t, true)
+	testutil.WriteFile(t, filepath.Join(c.home, "app", "window.json"), "{\"w\": 2}\n")
+	err := c.run(context.Background(), []string{"sync", "--yes", "--repo", repo, "--host", "box"})
+	require.Error(t, err)
+	assert.Contains(t, out.String(), "exported 1 layout file(s) of layouts")
+	assert.Contains(t, out.String(), "committed 1 file(s)", "the local commit still happens")
 }
 
 func TestConflictFix(t *testing.T) {

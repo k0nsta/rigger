@@ -274,6 +274,55 @@ func TestCommitSkipsFilesCommittedMeanwhile(t *testing.T) {
 	})
 }
 
+func TestDiscard(t *testing.T) {
+	ctx := context.Background()
+	a, _ := machines(t)
+	testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "edited\n")
+	testutil.WriteFile(t, filepath.Join(a.Repo, "staged.txt"), "staged new\n")
+	git(t, a.Repo, "add", "staged.txt")
+	testutil.WriteFile(t, filepath.Join(a.Repo, "layouts", "box", "new.json"), "{}\n")
+	testutil.WriteFile(t, filepath.Join(a.Repo, "keep.txt"), "not discarded\n")
+
+	changes, err := a.Changes(ctx)
+	require.NoError(t, err)
+	var drop []Change
+	for _, c := range changes {
+		if c.Path != "keep.txt" {
+			drop = append(drop, c)
+		}
+	}
+	require.Len(t, drop, 3)
+	require.NoError(t, a.Discard(ctx, drop))
+
+	assert.Equal(t, "one\n", testutil.ReadFile(t, filepath.Join(a.Repo, "zsh", ".zshrc")))
+	assert.NoFileExists(t, filepath.Join(a.Repo, "staged.txt"))
+	assert.NoFileExists(t, filepath.Join(a.Repo, "layouts", "box", "new.json"))
+	assert.Equal(t, "?? keep.txt\n", git(t, a.Repo, "status", "--porcelain=v1", "--untracked-files=all"))
+}
+
+func TestUpstreamFile(t *testing.T) {
+	ctx := context.Background()
+	a, b := machines(t)
+	testutil.WriteFile(t, filepath.Join(b.Repo, "manifest.yaml"), "version: 1\n# from b\n")
+	commit(t, b, "b", []string{"manifest.yaml"})
+	require.NoError(t, b.Push(ctx))
+
+	data, ok := a.UpstreamFile(ctx, "manifest.yaml")
+	require.True(t, ok)
+	assert.Equal(t, "version: 1\n", string(data), "before a fetch the upstream is the last one seen")
+	require.NoError(t, a.Fetch(ctx))
+	data, ok = a.UpstreamFile(ctx, "manifest.yaml")
+	require.True(t, ok)
+	assert.Equal(t, "version: 1\n# from b\n", string(data))
+	assert.Equal(t, "version: 1\n", testutil.ReadFile(t, filepath.Join(a.Repo, "manifest.yaml")), "the checkout is untouched")
+
+	_, ok = a.UpstreamFile(ctx, "missing.yaml")
+	assert.False(t, ok)
+	git(t, a.Repo, "branch", "--unset-upstream")
+	_, ok = a.UpstreamFile(ctx, "manifest.yaml")
+	assert.False(t, ok, "no upstream")
+}
+
 // caskroom fakes `brew --caskroom` with an install receipt naming each cask's tap.
 func caskroom(t *testing.T, taps map[string]string) string {
 	t.Helper()

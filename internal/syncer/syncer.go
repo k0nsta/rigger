@@ -387,6 +387,51 @@ func (s *Syncer) changedUpstream(ctx context.Context, dirty []string) ([]string,
 	return both, nil
 }
 
+// Fetch updates the remote-tracking branch without touching the checkout.
+func (s *Syncer) Fetch(ctx context.Context) error {
+	res, err := s.netGit(ctx, "fetch", "-q")
+	if err != nil {
+		return err
+	}
+	if res.Code != 0 {
+		return fmt.Errorf("git fetch failed: %s", sh.LastLines(res.Output, 4))
+	}
+	return nil
+}
+
+// UpstreamFile returns path as it is on the upstream branch after the last fetch; ok is false
+// when there is no upstream or the file is not there.
+func (s *Syncer) UpstreamFile(ctx context.Context, path string) (data []byte, ok bool) {
+	res, err := s.Runner.Run(ctx, sh.Cmd{Path: "git", Args: []string{"-C", s.Repo, "show", "@{u}:" + path}, SplitStdout: true})
+	if err != nil || res.Code != 0 {
+		return nil, false
+	}
+	return []byte(res.Stdout), true
+}
+
+// Discard drops the local changes to files: a tracked file goes back to HEAD (index and
+// worktree), an untracked one is removed.
+func (s *Syncer) Discard(ctx context.Context, changes []Change) error {
+	var tracked []string
+	for _, c := range changes {
+		if c.Code == "??" {
+			if err := os.Remove(filepath.Join(s.Repo, c.Path)); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			continue
+		}
+		tracked = append(tracked, c.Path)
+		if c.From != "" {
+			tracked = append(tracked, c.From)
+		}
+	}
+	if len(tracked) == 0 {
+		return nil
+	}
+	_, err := s.mustGit(ctx, append([]string{"restore", "--source=HEAD", "--staged", "--worktree", "--"}, tracked...)...)
+	return err
+}
+
 // Push publishes local commits.
 func (s *Syncer) Push(ctx context.Context) error {
 	res, err := s.netGit(ctx, "push", "-q")
