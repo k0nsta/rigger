@@ -660,7 +660,11 @@ func (c *cli) pickFiles(changes []syncer.Change, in *bufio.Reader, yes bool) []s
 	fmt.Fprintln(c.out, "local changes:")
 	all := make([]string, 0, len(changes))
 	for i, ch := range changes {
-		fmt.Fprintf(c.out, "  [%d] %s %s\n", i+1, ch.Code, ch.Path)
+		what := ch.Path
+		if ch.From != "" {
+			what = ch.From + " → " + ch.Path
+		}
+		fmt.Fprintf(c.out, "  [%d] %-8s %s\n", i+1, ch.State(), what)
 		all = append(all, ch.Path)
 	}
 	if yes {

@@ -59,6 +59,34 @@ func TestChanges(t *testing.T) {
 	assert.ElementsMatch(t, []Change{{Path: "zsh/.zshrc", Code: " M"}, {Path: "hosts/a.yaml", Code: "??"}}, changes)
 }
 
+func TestChangeState(t *testing.T) {
+	for code, want := range map[string]string{
+		" M": "changed", "M ": "changed", "MM": "changed", " T": "changed",
+		"??": "new", "A ": "new", "AM": "new",
+		" D": "deleted", "D ": "deleted", "MD": "deleted",
+		"R ": "renamed", "RM": "renamed", "C ": "copied",
+		"UU": "conflict", "AA": "conflict", "DD": "conflict", "DU": "conflict",
+	} {
+		assert.Equal(t, want, Change{Path: "x", Code: code}.State(), "code %q", code)
+	}
+}
+
+func TestListPaths(t *testing.T) {
+	assert.Equal(t, "a, b, c", ListPaths([]string{"a", "b", "c"}))
+	assert.Equal(t, "a, b, c and 2 more", ListPaths([]string{"a", "b", "c", "d", "e"}))
+	assert.Equal(t, "6 file(s) you left out of the commit changed on the remote too (a, b, c and 3 more): sync stops so your edit and the other machine's never mix",
+		(&UncommittedError{Files: []string{"a", "b", "c", "d", "e", "f"}}).Error())
+}
+
+func TestGitReason(t *testing.T) {
+	assert.Equal(t, "Could not read from remote repository.",
+		gitReason("git@example.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\n"))
+	assert.Equal(t, "failed to push some refs to 'origin'",
+		gitReason(" ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs to 'origin'\nhint: Updates were rejected because the remote contains work\nhint: that you do not have locally.\n"))
+	assert.Equal(t, "something odd", gitReason("something odd\nhint: try again\n"))
+	assert.Equal(t, "no output", gitReason(""))
+}
+
 func TestHomePathWarnings(t *testing.T) {
 	ctx := context.Background()
 	t.Run("swapped linked path", func(t *testing.T) {
