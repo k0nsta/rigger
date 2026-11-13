@@ -132,6 +132,8 @@ func TestCloneHTTPSAsksForTokenOnce(t *testing.T) {
 }
 
 func TestCloneSSHFailureDoesNotPrompt(t *testing.T) {
+	t.Setenv("GIT_SSH_COMMAND", "")
+	t.Setenv("GIT_SSH", "")
 	r := mocks.NewMockRunner(gomock.NewController(t))
 	r.EXPECT().Run(gomock.Any(), cmdIs("git config --global --get core.sshCommand")).Return(sh.Result{Code: 1}, nil)
 	r.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, c sh.Cmd) (sh.Result, error) {
@@ -205,6 +207,8 @@ func TestCloneErrorNamesCause(t *testing.T) {
 		{name: "publickey", output: "Cloning into '/tmp/x'...\ngit@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n", cause: "Permission denied (publickey)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GIT_SSH_COMMAND", "")
+			t.Setenv("GIT_SSH", "")
 			r := mocks.NewMockRunner(gomock.NewController(t))
 			r.EXPECT().Run(gomock.Any(), cmdIs("git config --global --get core.sshCommand")).Return(sh.Result{Code: 1}, nil)
 			r.EXPECT().Run(gomock.Any(), gomock.Any()).Return(sh.Result{Code: 128, Output: tc.output}, nil)
