@@ -61,23 +61,59 @@ func ListPaths(paths []string) string {
 	return fmt.Sprintf("%s and %d more", strings.Join(paths[:3], ", "), len(paths)-3)
 }
 
-// gitReason is the line of git's output that says why it failed: its first `fatal:` or
-// `error:` line without the prefix, else its last line that is not a hint.
+// gitReason says in one line why git failed. It is git's first `fatal:` or `error:` line
+// without the prefix, plus the cause git printed just before that generic line (an ssh
+// refusal, a rejected ref), or the files a line ending in ":" lists. Without such a line it
+// is the last line that is not a hint.
 func gitReason(out string) string {
-	lines := sh.Lines(out)
-	for _, l := range lines {
-		for _, p := range []string{"fatal: ", "error: "} {
-			if r, ok := strings.CutPrefix(l, p); ok {
-				return r
+	var lines []string
+	for _, l := range sh.Lines(out) {
+		if !strings.HasPrefix(l, "hint:") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) == 0 {
+		return "no output"
+	}
+	at := -1
+	for i, l := range lines {
+		if gitError(l) {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		return lines[len(lines)-1]
+	}
+	reason := strings.TrimPrefix(strings.TrimPrefix(lines[at], "fatal: "), "error: ")
+	if strings.HasSuffix(reason, ":") {
+		var listed []string
+		for _, l := range lines[at+1:] {
+			if gitError(l) || strings.HasPrefix(l, "Please ") || strings.HasPrefix(l, "Aborting") {
+				break
 			}
+			listed = append(listed, l)
+		}
+		return strings.TrimSpace(reason + " " + ListPaths(listed))
+	}
+	if at > 0 && !gitProgress(lines[at-1]) {
+		return lines[at-1] + " (" + reason + ")"
+	}
+	return reason
+}
+
+func gitError(line string) bool {
+	return strings.HasPrefix(line, "fatal: ") || strings.HasPrefix(line, "error: ")
+}
+
+// gitProgress reports a line git prints on its way, not about a failure.
+func gitProgress(line string) bool {
+	for _, p := range []string{"Cloning into", "To ", "From ", "remote: Enumerating", "remote: Counting", "remote: Compressing", "remote: Total"} {
+		if strings.HasPrefix(line, p) {
+			return true
 		}
 	}
-	for i := len(lines) - 1; i >= 0; i-- {
-		if !strings.HasPrefix(lines[i], "hint:") {
-			return lines[i]
-		}
-	}
-	return "no output"
+	return false
 }
 
 // Syncer runs git in the setup repo.

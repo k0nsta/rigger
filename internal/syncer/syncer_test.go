@@ -79,12 +79,25 @@ func TestListPaths(t *testing.T) {
 }
 
 func TestGitReason(t *testing.T) {
-	assert.Equal(t, "Could not read from remote repository.",
-		gitReason("git@example.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\n"))
-	assert.Equal(t, "failed to push some refs to 'origin'",
-		gitReason(" ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs to 'origin'\nhint: Updates were rejected because the remote contains work\nhint: that you do not have locally.\n"))
-	assert.Equal(t, "something odd", gitReason("something odd\nhint: try again\n"))
-	assert.Equal(t, "no output", gitReason(""))
+	for name, tc := range map[string]struct{ out, want string }{
+		"ssh refused": {
+			"git@example.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\n",
+			"git@example.com: Permission denied (publickey). (Could not read from remote repository.)",
+		},
+		"push rejected": {
+			"To example.com:you/setup.git\n ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs to 'example.com:you/setup.git'\nhint: Updates were rejected because the remote contains work\n",
+			"! [rejected]        main -> main (fetch first) (failed to push some refs to 'example.com:you/setup.git')",
+		},
+		"files listed": {
+			"error: The following untracked working tree files would be overwritten by merge:\n\tnotes/a.txt\n\tnotes/b.txt\nPlease move or remove them before you merge.\nAborting\n",
+			"The following untracked working tree files would be overwritten by merge: notes/a.txt, notes/b.txt",
+		},
+		"after progress": {"Cloning into 'x'...\nfatal: repository 'x' does not exist\n", "repository 'x' does not exist"},
+		"no prefix":      {"something odd\nhint: try again\n", "something odd"},
+		"empty":          {"", "no output"},
+	} {
+		assert.Equal(t, tc.want, gitReason(tc.out), name)
+	}
 }
 
 func TestHomePathWarnings(t *testing.T) {
