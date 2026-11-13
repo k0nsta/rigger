@@ -109,7 +109,7 @@ func TestCommitPushPullAcrossMachines(t *testing.T) {
 	testutil.WriteFile(t, filepath.Join(a.Repo, "hosts", "a.yaml"), "profile: x\n")
 	testutil.WriteFile(t, filepath.Join(a.Repo, "scratch.txt"), "not picked\n")
 
-	require.NoError(t, a.Commit(ctx, "a", []string{"zsh/.zshrc", "hosts/a.yaml"}))
+	commit(t, a, "a", []string{"zsh/.zshrc", "hosts/a.yaml"})
 	assert.Equal(t, 1, a.Ahead(ctx))
 	require.NoError(t, a.Push(ctx))
 	assert.Contains(t, git(t, a.Repo, "log", "-1", "--format=%s"), "sync(a): zsh/.zshrc, hosts/a.yaml")
@@ -142,7 +142,7 @@ func TestCommitTakesStagedChangesAsTheyAre(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, changes, Change{Path: "scripts/renamed.sh", Code: "R ", From: "scripts/ren.sh"})
 
-	require.NoError(t, a.Commit(ctx, "a", []string{"scripts/old.sh", "scripts/renamed.sh", "mm.txt"}))
+	commit(t, a, "a", []string{"scripts/old.sh", "scripts/renamed.sh", "mm.txt"})
 
 	committed := git(t, a.Repo, "show", "--name-status", "--format=", "HEAD")
 	assert.Contains(t, committed, "D\tscripts/old.sh")
@@ -157,11 +157,11 @@ func TestPullConflictAborts(t *testing.T) {
 	ctx := context.Background()
 	a, b := machines(t)
 	testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "a edit\n")
-	require.NoError(t, a.Commit(ctx, "a", []string{"zsh/.zshrc"}))
+	commit(t, a, "a", []string{"zsh/.zshrc"})
 	require.NoError(t, a.Push(ctx))
 
 	testutil.WriteFile(t, filepath.Join(b.Repo, "zsh", ".zshrc"), "b edit\n")
-	require.NoError(t, b.Commit(ctx, "b", []string{"zsh/.zshrc"}))
+	commit(t, b, "b", []string{"zsh/.zshrc"})
 	err := b.Pull(ctx)
 	require.ErrorIs(t, err, ErrConflict)
 	var conflict *ConflictError
@@ -178,7 +178,7 @@ func TestPullKeepsEditsLeftOutOfTheCommit(t *testing.T) {
 	ctx := context.Background()
 	a, b := machines(t)
 	testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "a edit\n")
-	require.NoError(t, a.Commit(ctx, "a", []string{"zsh/.zshrc"}))
+	commit(t, a, "a", []string{"zsh/.zshrc"})
 	require.NoError(t, a.Push(ctx))
 
 	// b changed a file the remote did not touch and left it out of its commit: the pull sets
@@ -196,7 +196,7 @@ func TestPullStopsWhenTheRemoteChangedALeftOutFile(t *testing.T) {
 	ctx := context.Background()
 	a, b := machines(t)
 	testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "a edit\n")
-	require.NoError(t, a.Commit(ctx, "a", []string{"zsh/.zshrc"}))
+	commit(t, a, "a", []string{"zsh/.zshrc"})
 	require.NoError(t, a.Push(ctx))
 
 	testutil.WriteFile(t, filepath.Join(b.Repo, "zsh", ".zshrc"), "b edit, not committed\n")
@@ -226,7 +226,7 @@ func TestGateRefusesCredentials(t *testing.T) {
 			a, _ := machines(t)
 			testutil.WriteFile(t, filepath.Join(a.Repo, path), body)
 			before := git(t, a.Repo, "rev-parse", "HEAD")
-			err := a.Commit(ctx, "a", []string{path})
+			_, err := a.Commit(ctx, "a", []string{path})
 			require.ErrorIs(t, err, ErrLeak)
 			assert.Equal(t, before, git(t, a.Repo, "rev-parse", "HEAD"), "nothing committed")
 			assert.Empty(t, strings.TrimSpace(git(t, a.Repo, "diff", "--cached", "--name-only")), "unstaged again")
@@ -234,10 +234,44 @@ func TestGateRefusesCredentials(t *testing.T) {
 	}
 }
 
+// commit runs s.Commit, requires no error and returns what it committed.
+func commit(t *testing.T, s *Syncer, host string, files []string) []string {
+	t.Helper()
+	committed, err := s.Commit(context.Background(), host, files)
+	require.NoError(t, err)
+	return committed
+}
+
 func TestCommitNothing(t *testing.T) {
 	a, _ := machines(t)
-	require.NoError(t, a.Commit(context.Background(), "a", nil))
+	assert.Empty(t, commit(t, a, "a", nil))
 	assert.Equal(t, 0, a.Ahead(context.Background()))
+}
+
+// The picked files were committed by another session while sync's prompt was open.
+func TestCommitSkipsFilesCommittedMeanwhile(t *testing.T) {
+	t.Run("all of them", func(t *testing.T) {
+		a, _ := machines(t)
+		testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "edit\n")
+		testutil.WriteFile(t, filepath.Join(a.Repo, "hosts", "a.yaml"), "profile: x\n")
+		git(t, a.Repo, "add", ".")
+		git(t, a.Repo, "commit", "-q", "-m", "by another session")
+		before := git(t, a.Repo, "rev-parse", "HEAD")
+
+		assert.Empty(t, commit(t, a, "a", []string{"zsh/.zshrc", "hosts/a.yaml"}))
+		assert.Equal(t, before, git(t, a.Repo, "rev-parse", "HEAD"), "no commit made")
+	})
+	t.Run("some of them", func(t *testing.T) {
+		a, _ := machines(t)
+		testutil.WriteFile(t, filepath.Join(a.Repo, "hosts", "a.yaml"), "profile: x\n")
+		git(t, a.Repo, "add", ".")
+		git(t, a.Repo, "commit", "-q", "-m", "by another session")
+		testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "still mine\n")
+
+		assert.Equal(t, []string{"zsh/.zshrc"}, commit(t, a, "a", []string{"zsh/.zshrc", "hosts/a.yaml"}))
+		assert.Equal(t, "sync(a): zsh/.zshrc\n", git(t, a.Repo, "log", "-1", "--format=%s"))
+		assert.Equal(t, "zsh/.zshrc\n", git(t, a.Repo, "show", "--name-only", "--format=", "HEAD"))
+	})
 }
 
 // caskroom fakes `brew --caskroom` with an install receipt naming each cask's tap.

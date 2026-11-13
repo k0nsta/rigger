@@ -183,49 +183,60 @@ var credentialContent = regexp.MustCompile(`(?m)oauth_token:\s*\S+|-----BEGIN [A
 // ErrLeak means the gate found a credential in the staged files.
 var ErrLeak = errors.New("possible credential staged")
 
-// Commit commits exactly files, as they are in the worktree, after the credential gate. A change
-// already staged (a `git rm`, a `git mv`) is committed as staged; a staged change that is not in
-// files stays staged and out of the commit. On a gate hit what Commit staged is unstaged again
-// and nothing is committed.
-func (s *Syncer) Commit(ctx context.Context, host string, files []string) error {
+// Commit commits exactly files, as they are in the worktree, after the credential gate, and
+// returns the ones it committed. A file that no longer has a change (another session committed
+// or reverted it after the list was shown) is skipped; with none left Commit does nothing. A
+// change already staged (a `git rm`, a `git mv`) is committed as staged; a staged change that is
+// not in files stays staged and out of the commit. On a gate hit what Commit staged is unstaged
+// again and nothing is committed.
+func (s *Syncer) Commit(ctx context.Context, host string, files []string) ([]string, error) {
 	if len(files) == 0 {
-		return nil
+		return nil, nil
 	}
 	changes, err := s.Changes(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	byPath := map[string]Change{}
 	for _, c := range changes {
 		byPath[c.Path] = c
 	}
-	var add []string
-	commit := append([]string{}, files...)
+	var add, picked, commit []string
 	for _, f := range files {
 		c, ok := byPath[f]
+		if !ok {
+			continue
+		}
+		picked = append(picked, f)
+		commit = append(commit, f)
 		if c.From != "" {
 			commit = append(commit, c.From) // a rename commits its old path's removal too
 		}
 		// `git add` of a staged deletion matches nothing in the worktree or the index and fails
-		if !ok || !c.staged() {
+		if !c.staged() {
 			add = append(add, f)
 		}
 	}
+	if len(picked) == 0 {
+		return nil, nil
+	}
 	if len(add) > 0 {
 		if _, err := s.mustGit(ctx, append([]string{"add", "-A", "--"}, add...)...); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	if err := s.gate(ctx, files); err != nil {
+	if err := s.gate(ctx, picked); err != nil {
 		if len(add) > 0 {
 			_, _ = s.git(ctx, append([]string{"reset", "-q", "--"}, add...)...)
 		}
-		return err
+		return nil, err
 	}
-	msg := fmt.Sprintf("sync(%s): %s", host, summarize(files))
+	msg := fmt.Sprintf("sync(%s): %s", host, summarize(picked))
 	// with paths, commit takes only them: other staged changes stay staged
-	_, err = s.mustGit(ctx, append([]string{"commit", "-q", "-m", msg, "--"}, commit...)...)
-	return err
+	if _, err := s.mustGit(ctx, append([]string{"commit", "-q", "-m", msg, "--"}, commit...)...); err != nil {
+		return nil, err
+	}
+	return picked, nil
 }
 
 func summarize(files []string) string {
