@@ -4,6 +4,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/k0nsta/rigger/internal/action"
@@ -156,7 +157,7 @@ func (e *Engine) probeComponent(ctx context.Context, c *manifest.Component, excl
 		if err != nil {
 			return cs, err
 		}
-		add(ActionStatus{Kind: KindLink, Target: l.Dst, Status: p.Status, Detail: p.Detail, link: &link, linkProbe: p})
+		add(ActionStatus{Kind: KindLink, Target: sh.Tilde(e.Env.Home, link.Dst), Status: p.Status, Detail: p.Detail, link: &link, linkProbe: p})
 	}
 	for _, s := range c.Seeds {
 		seed := action.NewSeed(e.Env, s)
@@ -164,7 +165,7 @@ func (e *Engine) probeComponent(ctx context.Context, c *manifest.Component, excl
 		if err != nil {
 			return cs, err
 		}
-		add(ActionStatus{Kind: KindSeed, Target: s.Dst, Status: p.Status, Detail: p.Detail, seed: &seed, seedProbe: p})
+		add(ActionStatus{Kind: KindSeed, Target: sh.Tilde(e.Env.Home, seed.Dst), Status: p.Status, Detail: p.Detail, seed: &seed, seedProbe: p})
 	}
 	if c.Layouts != nil {
 		lay := action.NewLayouts(e.Env, *c.Layouts)
@@ -172,10 +173,10 @@ func (e *Engine) probeComponent(ctx context.Context, c *manifest.Component, excl
 		if err != nil {
 			return cs, err
 		}
-		add(ActionStatus{Kind: KindLayouts, Target: c.Layouts.Dst, Status: p.Status, Detail: p.Detail, layouts: &lay, layProbe: p})
+		add(ActionStatus{Kind: KindLayouts, Target: sh.Tilde(e.Env.Home, lay.Dst), Status: p.Status, Detail: p.Detail, layouts: &lay, layProbe: p})
 	}
 	for _, mc := range c.Cmds {
-		cmd := action.Command{Cmd: mc, Repo: e.Env.Repo}
+		cmd := action.Command{Cmd: mc, Repo: e.Env.Repo, Env: commandEnv(e.Env.Vars)}
 		p, err := cmd.Probe(ctx, e.Runner, e.Secrets)
 		if err != nil {
 			return cs, err
@@ -198,6 +199,19 @@ func (e *Engine) probeComponent(ctx context.Context, c *manifest.Component, excl
 		cs.Summary = strings.Join(notes, "; ")
 	}
 	return cs, nil
+}
+
+func commandEnv(vars map[string]string) []string {
+	keys := make([]string, 0, len(vars))
+	for key := range vars {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	env := make([]string, 0, len(keys))
+	for _, key := range keys {
+		env = append(env, key+"="+vars[key])
+	}
+	return env
 }
 
 func describe(a ActionStatus) string {

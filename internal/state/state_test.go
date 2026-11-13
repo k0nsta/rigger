@@ -44,7 +44,7 @@ func TestHostRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, missing)
 
-	h := &HostFile{Profile: "personal", Components: []string{"a", "b"}, ExcludePackages: []string{"x"}}
+	h := &HostFile{Profile: "personal", Vars: map[string]string{"CODE": "~/code"}, Components: []string{"a", "b"}, ExcludePackages: []string{"x"}}
 	require.NoError(t, h.Save(path))
 	got, err := LoadHost(path)
 	require.NoError(t, err)

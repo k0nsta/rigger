@@ -11,6 +11,39 @@ import (
 )
 
 var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+var varNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+var dstVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
+
+// CheckVar validates a variable name and value from either a manifest or host file.
+func CheckVar(name, value string) error {
+	if !varNamePattern.MatchString(name) {
+		return fmt.Errorf("variable name %q must match %s", name, varNamePattern)
+	}
+	if isReservedVar(name) {
+		return fmt.Errorf("variable name %q is reserved", name)
+	}
+	if strings.Contains(value, "${") {
+		return fmt.Errorf("variable %q value must not contain ${...}", name)
+	}
+	if value != "~" && !strings.HasPrefix(value, "~/") && !filepath.IsAbs(value) {
+		return fmt.Errorf("variable %q value must be ~, ~/... or an absolute path", name)
+	}
+	return nil
+}
+
+func isReservedVar(name string) bool {
+	for _, reserved := range []string{"HOME", "PATH", "USER", "SHELL", "TMPDIR", "NONINTERACTIVE"} {
+		if name == reserved {
+			return true
+		}
+	}
+	for _, prefix := range []string{"RIGGER_", "SUDO_", "HOMEBREW_", "GIT_"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 // Validate checks ids, references, paths and dst nesting; repoDir is used for path checks.
 func (m *Manifest) Validate(repoDir string) error {
@@ -19,6 +52,11 @@ func (m *Manifest) Validate(repoDir string) error {
 
 	if m.Version != SchemaVersion {
 		add("manifest version %d is not supported (this rigger reads version %d)", m.Version, SchemaVersion)
+	}
+	for name, value := range m.Vars {
+		if err := CheckVar(name, value); err != nil {
+			add("vars: %v", err)
+		}
 	}
 
 	ids := map[string]bool{}
@@ -67,6 +105,11 @@ func (m *Manifest) Validate(repoDir string) error {
 			if s.Src == "" || s.Dst == "" {
 				add("component %q: seed needs src and dst", c.ID)
 			}
+			for _, secret := range s.Secrets {
+				if _, ok := m.Vars[secret]; ok {
+					add("component %q: variable %q is also used as a seed secret", c.ID, secret)
+				}
+			}
 		}
 		if c.Layouts != nil && (c.Layouts.Src == "" || c.Layouts.Dst == "" || len(c.Layouts.Files) == 0) {
 			add("component %q: layouts needs src, dst and files", c.ID)
@@ -74,6 +117,11 @@ func (m *Manifest) Validate(repoDir string) error {
 		for _, cmd := range c.Cmds {
 			if cmd.Run == "" {
 				add("component %q: cmd needs run", c.ID)
+			}
+			for _, secret := range cmd.Secrets {
+				if _, ok := m.Vars[secret]; ok {
+					add("component %q: variable %q is also used as a cmd secret", c.ID, secret)
+				}
 			}
 		}
 		if c.Brewfile == "" && len(c.Apt) == 0 && len(c.Links) == 0 && len(c.Seeds) == 0 && c.Layouts == nil && len(c.Cmds) == 0 {
@@ -187,34 +235,58 @@ func (m *Manifest) findCycle() string {
 // checkNestedDst rejects a link/seed/layouts dst used twice, or inside another link's dst: writing
 // there would write into the linked repo directory (e.g. a rendered secret into a tracked file).
 func (m *Manifest) checkNestedDst() []error {
-	type dst struct{ owner, path string }
+	type dst struct{ owner, path, display string }
 	var links, all []dst
+	var errs []error
+	add := func(owner, category, path string) string {
+		missing := false
+		expanded := dstVarPattern.ReplaceAllStringFunc(path, func(match string) string {
+			name := match[2 : len(match)-1]
+			value, ok := m.Vars[name]
+			if !ok {
+				errs = append(errs, fmt.Errorf("component %s: %s: %s is not in vars", owner, category, match))
+				missing = true
+				return match
+			}
+			return value
+		})
+		if missing {
+			return filepath.Clean(expanded)
+		}
+		// Use a stable home marker so ~/ paths can be compared with a variable whose
+		// default is also written in ~ form without knowing the user's home directory.
+		if expanded == "~" {
+			expanded = "/__rigger_home__"
+		} else if rest, ok := strings.CutPrefix(expanded, "~/"); ok {
+			expanded = filepath.Join("/__rigger_home__", rest)
+		}
+		return filepath.Clean(expanded)
+	}
 	for _, c := range m.Components {
 		for _, l := range c.Links {
-			d := dst{c.ID, filepath.Clean(l.Dst)}
+			d := dst{owner: c.ID, path: add(c.ID, "links", l.Dst), display: filepath.Clean(l.Dst)}
 			links = append(links, d)
 			all = append(all, d)
 		}
 		for _, s := range c.Seeds {
-			all = append(all, dst{c.ID, filepath.Clean(s.Dst)})
+			all = append(all, dst{owner: c.ID, path: add(c.ID, "seeds", s.Dst), display: filepath.Clean(s.Dst)})
 		}
 		if c.Layouts != nil {
-			all = append(all, dst{c.ID, filepath.Clean(c.Layouts.Dst)})
+			all = append(all, dst{owner: c.ID, path: add(c.ID, "layouts", c.Layouts.Dst), display: filepath.Clean(c.Layouts.Dst)})
 		}
 	}
-	var errs []error
-	owners := map[string]string{}
+	owners := map[string]dst{}
 	for _, d := range all {
 		if prev, ok := owners[d.path]; ok {
-			errs = append(errs, fmt.Errorf("component %q: dst %s is already used by %q", d.owner, d.path, prev))
+			errs = append(errs, fmt.Errorf("component %q: dst %s is already used by %q", d.owner, d.display, prev.owner))
 			continue
 		}
-		owners[d.path] = d.owner
+		owners[d.path] = d
 	}
 	for _, l := range links {
 		for _, d := range all {
 			if strings.HasPrefix(d.path, l.path+"/") {
-				errs = append(errs, fmt.Errorf("component %q: dst %s is inside the link %s of %q", d.owner, d.path, l.path, l.owner))
+				errs = append(errs, fmt.Errorf("component %q: dst %s is inside the link %s of %q", d.owner, d.display, l.display, l.owner))
 			}
 		}
 	}

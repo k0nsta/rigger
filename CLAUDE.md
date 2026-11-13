@@ -1,6 +1,6 @@
 # rigger
 
-Go + Bubble Tea installer that applies and syncs a setup repo (the user's is `k0nsta/machine-setup`, cloned at `~/Dev/github.com/machine-setup`). Public since 2026-10-27; releases are `v*` tags (see Releases below). For a local binary use `make build` or `GOOS=darwin GOARCH=arm64 go build -trimpath ./cmd/rigger`.
+Go + Bubble Tea installer that applies and syncs a setup repo (the maintainer's own setup repo). Public since 2026-10-27; releases are `v*` tags (see Releases below). For a local binary use `make build` or `GOOS=darwin GOARCH=arm64 go build -trimpath ./cmd/rigger`.
 
 ## Layout
 
@@ -21,7 +21,7 @@ make build    # bin/rigger
 
 ## Model
 
-- Catalog = `manifest.yaml` + `brew/*.Brewfile`; per-machine delta = `hosts/<name>.yaml` (`profile`, `add`, `remove`, `exclude_packages`, `include_packages`, `ignore_packages`).
+- Catalog = `manifest.yaml` + `brew/*.Brewfile`; per-machine delta = `hosts/<name>.yaml` (`profile`, `add`, `remove`, `exclude_packages`, `include_packages`, `ignore_packages`, `vars`).
 - rigger never uninstalls; apps already present outside brew count as installed.
 - The TUI shows a Brewfile package's description from the comment line right above it.
 
@@ -34,12 +34,12 @@ make build    # bin/rigger
 
 ## Next
 
-Land order of plans: `20261028-host-vars` (v0.1.3) → `20261030-agentic-first` (v0.2.0) → `20261027-sync-tui` (v0.3.0) → `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`.
+Land `20261112-public-fixes` and `20261028-host-vars` together on one branch for v0.1.3, then `20261030-agentic-first` (v0.2.0) → `20261027-sync-tui` (v0.3.0) → `20261008-app-checklist` → `20261009-vault-and-machine-keys` → `20261008-background-sync`.
 
 ## Releases
 
 - Tag `vX.Y.Z` on master after CI is green; `.github/workflows/release.yml` runs GoReleaser: darwin/linux × arm64/amd64, `install.sh` on the release, cask in `k0nsta/homebrew-apps` (needs the `HOMEBREW_TAP_GITHUB_TOKEN` repo secret, a fine-grained token with Contents write on that tap only).
 - Check after a release: `brew install --cask k0nsta/apps/rigger` on a Mac, `install.sh` on Linux, `rigger version`.
-- History was rewritten on 2026-10-12; the pre-cleanup repo with PRs #1–#24 is the private `k0nsta/rigger-archive`.
+- History was rewritten on 2026-10-12; the pre-cleanup repository with PRs #1–#24 is archived privately.
 - Plans here are `docs/plans/YYYYMMDD-<slug>.md`, without the `PMC-0` prefix used in other repos.
 - Token-shaped test fixtures stay split (`"ghp_" + "…"`) so nothing in the source looks like a real token; `gitleaks git .` must stay clean.

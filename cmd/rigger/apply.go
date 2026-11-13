@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/k0nsta/rigger/internal/action"
 	"github.com/k0nsta/rigger/internal/engine"
 	"github.com/k0nsta/rigger/internal/repo"
 	"github.com/k0nsta/rigger/internal/sh"
@@ -31,6 +32,7 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 	if !yes && !dryRun && !c.isTTY {
 		return errors.New("stdin is not a terminal: pass --yes to apply without asking")
 	}
+	in := bufio.NewReader(c.in)
 
 	s, sel, err := f.open(c.home)
 	if err != nil {
@@ -65,7 +67,7 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 		fmt.Fprintln(c.out, "\nnothing to do")
 		return s.Save(sel)
 	}
-	if !yes && !c.confirm(fmt.Sprintf("\napply %d component(s)? [y/N] ", pending)) {
+	if !yes && !c.confirm(in, fmt.Sprintf("\napply %d component(s)? [y/N] ", pending)) {
 		return errors.New("cancelled")
 	}
 	logf, err := openRunLog(s.Home)
@@ -85,7 +87,13 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 	}
 	defer stop()
 
-	outcomes := s.Engine.Apply(ctx, statuses, engine.Decisions{Running: processRunning(ctx, s.Exec)}, func(ev engine.Event) {
+	d := engine.Decisions{Running: processRunning(ctx, s.Exec)}
+	if s.HostFile != nil {
+		linkDecisions := c.decideReplacedLinks(in, statuses, yes, s.Home)
+		d.Adopt, d.Leave = linkDecisions.Adopt, linkDecisions.Leave
+	}
+	printKeptSeeds(c.out, statuses)
+	outcomes := s.Engine.Apply(ctx, statuses, d, func(ev engine.Event) {
 		switch ev.Kind {
 		case engine.Started:
 			fmt.Fprintf(out, "\n==> %s\n", ev.Component)
@@ -119,11 +127,55 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *cli) confirm(prompt string) bool {
+func (c *cli) confirm(in *bufio.Reader, prompt string) bool {
 	fmt.Fprint(c.out, prompt)
-	line, _ := bufio.NewReader(c.in).ReadString('\n')
+	line, _ := in.ReadString('\n')
 	answer := strings.ToLower(strings.TrimSpace(line))
 	return answer == "y" || answer == "yes"
+}
+
+// decideReplacedLinks asks what to do with each link whose target a tool replaced with a real
+// file of other content (sed -i, an editor's atomic save): relinking it silently would move the
+// user's edit to a backup. With --yes the file is left as it is and a warning says how to adopt it.
+func (c *cli) decideReplacedLinks(in *bufio.Reader, apply []engine.ComponentStatus, yes bool, home string) engine.Decisions {
+	d := engine.Decisions{Adopt: map[string]bool{}, Leave: map[string]bool{}}
+	for _, cs := range apply {
+		for _, a := range cs.Actions {
+			if a.Kind != engine.KindLink || a.Status != action.Differs {
+				continue
+			}
+			target := sh.Tilde(home, a.Target)
+			if yes {
+				d.Leave[a.Key()] = true
+				fmt.Fprintf(c.out, "warning: %s is a real file now, with other content than the repo's; left as it is.\n"+
+					"  take it into the repo: rigger adopt %s\n", target, target)
+				continue
+			}
+			fmt.Fprintf(c.out, "\n%s (%s) is a real file now, with other content than the repo's:\n", target, cs.ID())
+			fmt.Fprintln(c.out, "  a      adopt it: copy it into the repo, then link it")
+			fmt.Fprintln(c.out, "  k      keep the repo version: your file goes to a backup")
+			fmt.Fprintln(c.out, "  enter  leave it as it is for now")
+			switch c.askChoice(in, "  choice [a/k/enter]: ", "a", "k", "") {
+			case "a":
+				d.Adopt[a.Key()] = true
+			case "k":
+			default:
+				d.Leave[a.Key()] = true
+			}
+		}
+	}
+	return d
+}
+
+// printKeptSeeds explains why an apply left a both-changed seed untouched.
+func printKeptSeeds(out io.Writer, statuses []engine.ComponentStatus) {
+	for _, cs := range statuses {
+		for _, a := range cs.Actions {
+			if a.Kind == engine.KindSeed && a.Status == action.BothChanged {
+				fmt.Fprintf(out, "\n%s: both the template and live file changed; kept the live file.\n", a.Target)
+			}
+		}
+	}
 }
 
 // terminalPassword asks for the sudo password on the terminal (askpass server callback).

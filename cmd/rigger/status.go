@@ -6,11 +6,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
 	"golang.org/x/term"
 
+	"github.com/k0nsta/rigger/internal/app"
 	"github.com/k0nsta/rigger/internal/engine"
 	"github.com/k0nsta/rigger/internal/manifest"
 	"github.com/k0nsta/rigger/internal/sh"
@@ -35,7 +37,9 @@ func (c *cli) status(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(c.out, "%s · %s · profile %s · repo %s\n\n", s.Host, s.Platform, orNone(sel.Profile), sh.Tilde(s.Home, s.Repo))
+	fmt.Fprintf(c.out, "%s · %s · profile %s · repo %s\n", s.Host, s.Platform, orNone(sel.Profile), sh.Tilde(s.Home, s.Repo))
+	printVars(c.out, s)
+	fmt.Fprintln(c.out)
 	c.warnHead(ctx, s)
 	printStatuses(c.out, statuses, res)
 	if missing := engine.MissingSecrets(statuses, s.Secrets); len(missing) > 0 {
@@ -47,6 +51,40 @@ func (c *cli) status(ctx context.Context, args []string) error {
 		}
 	}
 	return nil
+}
+
+func printVars(out io.Writer, s *app.Session) {
+	if len(s.Manifest.Vars) == 0 && (s.HostFile == nil || len(s.HostFile.Vars) == 0) {
+		return
+	}
+
+	names := make([]string, 0, len(s.Manifest.Vars))
+	for name := range s.Manifest.Vars {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	values := make([]string, 0, len(names))
+	for _, name := range names {
+		value := s.Engine.Env.Vars[name]
+		values = append(values, fmt.Sprintf("%s=%s (%s)", name, sh.Tilde(s.Home, value), s.Engine.Env.VarSources[name]))
+	}
+	if len(values) > 0 {
+		fmt.Fprintf(out, "vars: %s\n", strings.Join(values, ", "))
+	}
+
+	if s.HostFile == nil {
+		return
+	}
+	undeclared := make([]string, 0)
+	for name := range s.HostFile.Vars {
+		if _, ok := s.Manifest.Vars[name]; !ok {
+			undeclared = append(undeclared, name)
+		}
+	}
+	sort.Strings(undeclared)
+	for _, name := range undeclared {
+		fmt.Fprintf(out, "warning: hosts/%s.yaml: var %s is not declared in manifest vars\n", s.Host, name)
+	}
 }
 
 func printStatuses(out io.Writer, statuses []engine.ComponentStatus, res manifest.Resolution) {

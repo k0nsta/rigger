@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -159,6 +160,116 @@ func TestNamingTheHostProfileKeepsHostChanges(t *testing.T) {
 	hf, err := state.LoadHost(state.HostPath(s.Repo, "box"))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"b"}, hf.Remove, "a save does not lose the remove")
+}
+
+func TestSaveKeepsVars(t *testing.T) {
+	s := open(t, deltaManifest)
+	testutil.WriteFile(t, state.HostPath(s.Repo, "box"), "vars:\n  CODE: ~/code\n")
+	s = reopen(t, s)
+	sel, err := s.Select("", nil)
+	require.NoError(t, err)
+	require.NoError(t, s.Save(sel))
+	hf, err := state.LoadHost(state.HostPath(s.Repo, "box"))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"CODE": "~/code"}, hf.Vars)
+}
+
+func TestSetHostMergesVars(t *testing.T) {
+	repo := testutil.Tree(t, map[string]string{
+		"manifest.yaml":     "version: 1\nvars:\n  CODE: ~/github.com\nprofiles: {}\ncomponents:\n  - id: a\n    group: g\n    cmds: [{run: \"true\"}]\n",
+		"hosts/laptop.yaml": "vars:\n  CODE: ~/code\n",
+	})
+	home := t.TempDir()
+	s, err := Open(Options{Repo: repo, Host: "box", Home: home})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, "github.com"), s.Engine.Env.Vars["CODE"])
+
+	got, err := s.SetHost("laptop")
+	require.NoError(t, err)
+	assert.Equal(t, "laptop", got)
+	assert.Equal(t, filepath.Join(home, "code"), s.Engine.Env.Vars["CODE"])
+	assert.Equal(t, "hosts/laptop.yaml", s.Engine.Env.VarSources["CODE"])
+}
+
+func TestHostVarsRefused(t *testing.T) {
+	repo := testutil.Tree(t, map[string]string{
+		"manifest.yaml":  "version: 1\nprofiles: {}\ncomponents:\n  - id: a\n    group: g\n    cmds: [{run: \"true\"}]\n",
+		"hosts/box.yaml": "vars:\n  CODE: relative\n",
+	})
+	_, err := Open(Options{Repo: repo, Host: "box", Home: t.TempDir()})
+	require.ErrorContains(t, err, "hosts/box.yaml: vars: variable \"CODE\"")
+}
+
+func TestAdoptMessageUsesExpandedTarget(t *testing.T) {
+	repo := testutil.Tree(t, map[string]string{
+		"manifest.yaml": `version: 1
+vars: {CODE: ~/code}
+profiles: {}
+components:
+  - id: tool
+    group: g
+    links: [{src: files/x, dst: "${CODE}/x"}]
+`,
+		"files/x": "repo",
+	})
+	home := t.TempDir()
+	s, err := Open(Options{Repo: repo, Host: "box", Home: home})
+	require.NoError(t, err)
+	target := filepath.Join(home, "code", "x")
+	testutil.WriteFile(t, target, "live")
+	msg, err := s.Adopt(context.Background(), "~/code/x")
+	require.NoError(t, err)
+	assert.Contains(t, msg, "~/code/x copied into")
+}
+
+func TestSetHostRejectsMergedDstCollision(t *testing.T) {
+	repo := testutil.Tree(t, map[string]string{
+		"manifest.yaml": `version: 1
+vars:
+  CODE: ~/code
+  OTHER: ~/other
+profiles: {}
+components:
+  - id: a
+    group: g
+    links: [{src: files/a, dst: "${CODE}/x"}]
+  - id: b
+    group: g
+    links: [{src: files/b, dst: "${OTHER}/x/y"}]
+`,
+		"files/a":           "a",
+		"files/b":           "b",
+		"hosts/laptop.yaml": "vars:\n  OTHER: ~/code/x\n",
+	})
+	s, err := Open(Options{Repo: repo, Host: "box", Home: t.TempDir()})
+	require.NoError(t, err)
+	_, err = s.SetHost("laptop")
+	require.ErrorContains(t, err, "dst")
+	assert.Equal(t, "box", s.Host, "a rejected host does not replace the active host")
+}
+
+func TestSetHostRejectsLiteralHomeDstCollision(t *testing.T) {
+	repo := testutil.Tree(t, map[string]string{
+		"manifest.yaml": `version: 1
+vars: {CODE: ~/other}
+profiles: {}
+components:
+  - id: a
+    group: g
+    links: [{src: files/a, dst: ~/code/x}]
+  - id: b
+    group: g
+    links: [{src: files/b, dst: "${CODE}/x"}]
+`,
+		"files/a":           "a",
+		"files/b":           "b",
+		"hosts/laptop.yaml": "vars:\n  CODE: ~/code\n",
+	})
+	s, err := Open(Options{Repo: repo, Host: "box", Home: t.TempDir()})
+	require.NoError(t, err)
+	_, err = s.SetHost("laptop")
+	require.ErrorContains(t, err, "dst")
+	assert.Equal(t, "box", s.Host, "a rejected host does not replace the active host")
 }
 
 const originManifest = `

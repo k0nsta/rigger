@@ -56,6 +56,13 @@ func TestLinkProbeStatuses(t *testing.T) {
 	assert.Equal(t, LinkProbe{Status: Conflict, Detail: "real directory"}, probe(dir))
 }
 
+func TestLinkTargetExpandsVars(t *testing.T) {
+	env := testEnv(t, map[string]string{"x": "x"})
+	env.Vars = map[string]string{"CODE": filepath.Join(env.Home, "code")}
+	l := NewLink(env, manifest.Link{Src: "x", Dst: "${CODE}/x"})
+	assert.Equal(t, filepath.Join(env.Home, "code", "x"), l.Dst)
+}
+
 func TestLinkProbeRelativeSymlink(t *testing.T) {
 	env := testEnv(t, map[string]string{"a": "x"})
 	l := NewLink(env, manifest.Link{Src: "a", Dst: "~/a"})

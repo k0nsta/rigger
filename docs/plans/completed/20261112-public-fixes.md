@@ -11,6 +11,9 @@
 - A seed changed on both sides keeps the live file outside the TUI, as today; `apply` and `sync` now say so, and the docs say only the TUI asks.
 - `sync` exits 1 when a component failed, after the push, so other work still goes out. A component waiting for a secret is listed and does not change the exit code: a machine that lacks a secret is a normal state.
 - The private names stay in public git history; rewriting a published history is not worth it for these.
+- Lands on one branch, `v0.1.3`, with `docs/plans/20261028-host-vars.md`, which runs first; this plan runs second on the same branch, so its line numbers in `apply.go` and `sync.go` may have moved: read the function, not the line (2026-11-12).
+- Before the run, outside every task: PR #16 is merged (it removes the machine names from `docs/plans/20261027-sync-tui.md`), and docker runs (`colima start`) so the Linux container test runs instead of skipping; the run reaches it through the repository's stepwise `env_file`, which sets `DOCKER_HOST` to colima's socket (2026-11-12).
+- The maintainer's own leak check over every tracked file runs outside the repo after the run, and only its result is recorded (Post-Completion); the run's own check is the repo-only grep in Acceptance Criteria (2026-11-12).
 
 ## Context (from discovery)
 - `cmd/rigger/apply.go:88` passes no `Adopt`/`Leave` decisions, so the engine relinks with `KeepRepo` and moves the edit to a backup. `docs/setup-repo.md:66` says it asks. `cmd/rigger/sync.go` `decideReplacedLinks` is the prompt to share; sync asks it after `StartAskpass` (sync.go:158-163). `apply`'s `confirm` makes a new `bufio.Reader` per call (apply.go:124).
@@ -20,7 +23,7 @@
 - `rigger init` clones with no terminal (internal/sh/sh.go:116, `Setsid`), so ssh cannot answer a first-connect host-key question; the `accept-new` probe in `internal/repo/clone.go:180` (`UseSSHOrigin`) runs after the clone. `internal/remote/remote.go:76` and `internal/syncer/syncer.go:58-61` already set `GIT_SSH_COMMAND` with options. `lastLine` (clone.go:146) keeps only git's last line, "and the repository exists."; `lastLines` exists in syncer.go:206.
 - README:25 says sync "refuses to commit anything that looks like a credential"; the built-in check covers credential file names and common token formats (internal/syncer/syncer.go:110-113), gitleaks the rest when installed (syncer.go:184-193).
 - README:116 lists `--dry-run` for every command; only `apply` has it (apply.go:27).
-- Personal data in tracked files: `CLAUDE.md:3` and `CLAUDE.md:43`, `docs/plans/completed/20261008-rigger.md:16`, `docs/plans/20261025-release-check.md:54,65`, `docs/plans/20261009-vault-and-machine-keys.md:236-239`; `docs/plans/20261027-sync-tui.md` is cleaned in PR #16.
+- Personal data in tracked files: `CLAUDE.md:3` and `CLAUDE.md:43`, `docs/plans/completed/20261008-rigger.md:16`, `docs/plans/20261025-release-check.md:54,65,67`, `docs/plans/20261008-app-checklist.md:69,175`, `docs/plans/20261009-vault-and-machine-keys.md:90,236-239`; `docs/plans/20261027-sync-tui.md` is cleaned in PR #16.
 - `docs/plans/20261027-sync-tui.md` later sends interactive `apply` to the TUI's review screen, so the typed prompt here stays thin.
 
 ## Development Approach
@@ -47,12 +50,15 @@
 - **Post-Completion**: release with v0.1.3.
 
 ## Acceptance Criteria
-- Run: `make check`
-- Run: `go test -count=1 ./tests/`
+- Run: `go test -count=1 -run 'TestApplyAsksAboutReplacedLink|TestApplyYesLeavesReplacedLink|TestApplyFirstRunLinks|TestApplySaysSeedKept|TestSyncSaysSeedKept' ./cmd/rigger/`
+- Run: `go test -count=1 -run 'TestSyncNotFinished|TestSyncListsWaitingSecrets' ./cmd/rigger/`
+- Run: `go test -count=1 -run 'TestCloneAcceptsNewHostKey|TestCloneErrorNamesCause' ./internal/repo/`
+- Run: `go test -count=1 -run 'TestApplyLeavesALinkReplacedByARealFile|TestApplyAndRerunIsNoop' ./tests/`
+- Run: `go test -count=1 -run TestLinuxServerProfile -v ./tests/ | grep -q -- '--- PASS: TestLinuxServerProfile'`
+- Run: `grep -q 'common token formats' README.md && ! grep -q '^| .--dry-run. |' README.md && grep -q 'rigger apply.*--dry-run' README.md`
+- Run: `grep -q 'leaves it once the machine is set up' docs/setup-repo.md && grep -q 'asked about in the TUI and kept elsewhere' docs/setup-repo.md`
 - Run: `gitleaks git .`
-- `apply --yes` on a set-up machine with a replaced link leaves the file and prints the adopt hint; on a first run it still backs up and links.
-- `sync` with a failing cmd pushes, then exits 1 without `in sync`.
-- No machine names, private repository names or home paths in tracked files, checked with the maintainer's own pattern list (kept outside the repo).
+- Run: `! git grep -n -I -E '/Users/[a-z]{3,}/|Dev/github\.com/' -- . ':!docs/plans/*public-fixes.md' ':!docs/plans/completed/*public-fixes.md'`
 
 ## Implementation Steps
 
@@ -61,61 +67,68 @@
 - Modify: `cmd/rigger/apply.go`
 - Modify: `cmd/rigger/sync.go`
 - Modify: `cmd/rigger/main_test.go`
+- Modify: `cmd/rigger/sync_test.go`
 - Modify: `tests/e2e_test.go`
 
-- [ ] share `decideReplacedLinks` between `sync` and `apply`; one reader in `apply`; `--yes` leaves only when the host file exists
-- [ ] a both-changed seed prints that the live file was kept, in `apply` and `sync`
-- [ ] write tests: answers through one reader with the confirm; `--yes` on a set-up machine; first run unchanged; cancelled confirm asks nothing; the seed message
-- [ ] e2e: the `apply --yes` twin of the sync test
-- [ ] run tests - must pass before task 2
+- [x] share `decideReplacedLinks` between `sync` and `apply`; one reader in `apply`; `--yes` leaves only when the host file exists
+- [x] a both-changed seed prints that the live file was kept, in `apply` and `sync`
+- [x] write tests: answers through one reader with the confirm (`TestApplyAsksAboutReplacedLink`); `--yes` on a set-up machine (`TestApplyYesLeavesReplacedLink`); first run unchanged (`TestApplyFirstRunLinks`); cancelled confirm asks nothing; the seed message in apply (`TestApplySaysSeedKept`) and in sync (`TestSyncSaysSeedKept`); `TestDecideReplacedLinks` still passes
+- [x] e2e: `TestApplyLeavesALinkReplacedByARealFile`, the `apply --yes` twin of the sync test
+- [x] run tests - must pass before task 2
 
 ### Task 2: sync says when it did not finish
 **Files:**
 - Modify: `cmd/rigger/sync.go`
 - Modify: `cmd/rigger/sync_test.go`
 
-- [ ] failed components end the run with `not finished: …`, exit 1, after the push or at `--no-push`; no `in sync`; needs-secret components listed, exit unchanged
-- [ ] write tests: a failing cmd; `--no-push`; a component waiting for a secret; a clean run still exits 0 with `in sync`
-- [ ] run tests - must pass before task 3
+- [x] failed components end the run with `not finished: …`, exit 1, after the push or at `--no-push`; no `in sync`; needs-secret components listed, exit unchanged
+- [x] write tests: a failing cmd and `--no-push` (`TestSyncNotFinished`); a component waiting for a secret (`TestSyncListsWaitingSecrets`); a clean run still exits 0 with `in sync`
+- [x] run tests - must pass before task 3
 
 ### Task 3: init over ssh on a fresh machine
 **Files:**
 - Modify: `internal/repo/clone.go`
 - Modify: `internal/repo/clone_test.go`
 - Modify: `internal/sh/sh.go`
+- Modify: `internal/sh/sh_test.go`
 - Modify: `internal/syncer/syncer.go`
 
-- [ ] `accept-new` for an ssh clone unless the user set an ssh command; `lastLines` moved to `internal/sh`; the clone error keeps ssh's cause
-- [ ] write tests: ssh vs HTTPS; each of the three user settings kept; the error text from a host-key failure and a publickey failure
-- [ ] run tests - must pass before task 4
+- [x] `accept-new` for an ssh clone unless the user set an ssh command; `lastLines` moved to `internal/sh`; the clone error keeps ssh's cause
+- [x] write tests: ssh vs HTTPS and the three user settings kept (`TestCloneAcceptsNewHostKey`); the error text from a host-key failure and a publickey failure (`TestCloneErrorNamesCause`); `LastLines` in `internal/sh`
+- [x] run tests - must pass before task 4
 
 ### Task 4: docs that match the code
 **Files:**
 - Modify: `README.md`
 - Modify: `docs/setup-repo.md`
 
-- [ ] the credential sentence, `--dry-run` under `apply`, the link and seed rows as in Technical Details
-- [ ] run tests - must pass before task 5
+- [x] the credential sentence (with the words "common token formats"); `--dry-run` out of the general flag table and on the `rigger apply` line of "Every day"; the link row says `--yes` "leaves it once the machine is set up", the seed row says a both-changed seed is "asked about in the TUI and kept elsewhere"
+- [x] run tests - must pass before task 5
 
 ### Task 5: no personal data in the public repo
 **Files:**
 - Modify: `CLAUDE.md`
 - Modify: `docs/plans/completed/20261008-rigger.md`
 - Modify: `docs/plans/20261025-release-check.md`
+- Modify: `docs/plans/20261008-app-checklist.md`
 - Modify: `docs/plans/20261009-vault-and-machine-keys.md`
 
-- [ ] `CLAUDE.md`: "the maintainer's own setup repo" instead of its name and path; drop the archive repo's name
-- [ ] the three plans: neutral machine, repo and path names; no named people or private tool paths
-- [ ] check every tracked file with the maintainer's pattern list
-- [ ] run tests - must pass before task 6
+- [x] `CLAUDE.md`: "the maintainer's own setup repo" instead of its name and path; drop the archive repo's name
+- [x] the four plans: neutral machine, repo and path names; no named people or private tool paths
+- [x] the home-path grep in Acceptance Criteria finds nothing
+- [x] run tests - must pass before task 6
 
 ### Task 6: [Final] Update documentation
-- [ ] `CLAUDE.md` "Next": this plan beside `20261028-host-vars` for v0.1.3
-- [ ] `docs/plans/20261027-sync-tui.md`: its Context notes that `apply` already asks about replaced links
-- [ ] move this plan to `docs/plans/completed/`
+**Files:**
+- Modify: `CLAUDE.md`
+- Modify: `docs/plans/20261027-sync-tui.md`
+
+- [x] `CLAUDE.md` "Next": this plan and `20261028-host-vars` on one branch for v0.1.3
+- [x] `docs/plans/20261027-sync-tui.md` (already cleaned by PR #16): its Context notes that `apply` asks about replaced links
 
 ## Post-Completion
 *Items requiring manual intervention or external systems - no checkboxes, informational only*
 
-- Release v0.1.3 once this plan and `docs/plans/20261028-host-vars.md` have landed.
-- `docs/plans/20261027-sync-tui.md` loses its machine names when PR #16 merges.
+- The maintainer runs their own leak check over every tracked file and records only the result.
+- A fresh Mac in the tart VM matrix (`tests/vm/run.sh`) runs `rigger init` over ssh against a host it has never seen.
+- Release v0.1.3 from the `v0.1.3` branch once both plans are done.

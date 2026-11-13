@@ -106,6 +106,74 @@ func (s *Syncer) Changes(ctx context.Context) ([]Change, error) {
 	return changes, nil
 }
 
+// HomePathWarnings reports changed link sources that replace a tilde home path with this
+// machine's absolute home path. A newly added absolute path is not enough to trigger it.
+func (s *Syncer) HomePathWarnings(ctx context.Context, changes []Change, linkSources []string, home string) ([]string, error) {
+	linked := make(map[string]bool, len(linkSources))
+	for _, path := range linkSources {
+		linked[filepath.ToSlash(filepath.Clean(path))] = true
+	}
+	home = filepath.Clean(home)
+	var warnings []string
+	for _, change := range changes {
+		path := filepath.ToSlash(filepath.Clean(change.Path))
+		isLinked := linked[path]
+		if !isLinked {
+			for source := range linked {
+				if strings.HasPrefix(path, source+"/") {
+					isLinked = true
+					break
+				}
+			}
+		}
+		if !isLinked {
+			continue
+		}
+		res, err := s.git(ctx, "diff", "--no-ext-diff", "--no-color", "HEAD", "--", change.Path)
+		if err != nil {
+			return nil, err
+		}
+		if res.Code != 0 {
+			return nil, fmt.Errorf("git diff failed for %s: %s", change.Path, strings.TrimSpace(res.Output))
+		}
+		var removed []string
+		for _, line := range strings.Split(res.Output, "\n") {
+			if strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ ") || len(line) == 0 {
+				continue
+			}
+			switch line[0] {
+			case '-':
+				if strings.Contains(line, "~/") {
+					removed = append(removed, line[1:])
+				}
+			case '+':
+				if len(removed) == 0 || !strings.Contains(line, home) {
+					continue
+				}
+				oldPath := homeTildePath(removed[0])
+				warnings = append(warnings, fmt.Sprintf("%s: replaces %s with this machine's home path", change.Path, oldPath))
+				removed = nil
+			}
+		}
+	}
+	return warnings, nil
+}
+
+func homeTildePath(line string) string {
+	start := strings.Index(line, "~/")
+	if start < 0 {
+		return "~/…"
+	}
+	path := line[start:]
+	if end := strings.IndexAny(path, "\\\"'` \t)"); end >= 0 {
+		path = path[:end]
+	}
+	if path == "~/" {
+		return "~/…"
+	}
+	return path
+}
+
 // credentialPaths are file names that must never be committed.
 var credentialPaths = regexp.MustCompile(`(^|/)(\.credentials\.json|id_(rsa|ed25519|ecdsa)|.*\.pem|.*\.p12|.*\.key|secrets\.env|\.netrc|\.pgpass)$`)
 
@@ -190,7 +258,7 @@ func (s *Syncer) gate(ctx context.Context, files []string) error {
 		return err
 	}
 	if scan.Code != 0 {
-		return fmt.Errorf("%w: gitleaks: %s", ErrLeak, lastLines(scan.Output, 6))
+		return fmt.Errorf("%w: gitleaks: %s", ErrLeak, sh.LastLines(scan.Output, 6))
 	}
 	return nil
 }
@@ -201,14 +269,6 @@ func redact(b []byte) string {
 		return s[:8]
 	}
 	return s[:min(4, len(s))]
-}
-
-func lastLines(out string, n int) string {
-	lines := sh.Lines(out)
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	return strings.Join(lines, " | ")
 }
 
 // ErrConflict means pull --rebase hit a conflict and was aborted.
@@ -286,7 +346,7 @@ func (s *Syncer) Pull(ctx context.Context) error {
 		_, _ = s.git(ctx, "rebase", "--abort")
 		return &ConflictError{Files: files}
 	}
-	return fmt.Errorf("git pull failed: %s", lastLines(res.Output, 4))
+	return fmt.Errorf("git pull failed: %s", sh.LastLines(res.Output, 4))
 }
 
 // changedUpstream fetches and returns the files of dirty that the upstream changed since the
@@ -297,7 +357,7 @@ func (s *Syncer) changedUpstream(ctx context.Context, dirty []string) ([]string,
 		return nil, err
 	}
 	if res.Code != 0 {
-		return nil, fmt.Errorf("git fetch failed: %s", lastLines(res.Output, 4))
+		return nil, fmt.Errorf("git fetch failed: %s", sh.LastLines(res.Output, 4))
 	}
 	out, err := s.mustGit(ctx, "diff", "--name-only", "HEAD...@{u}")
 	if err != nil {

@@ -23,10 +23,12 @@ type fakeShell struct {
 	t       *testing.T
 	answers map[string]sh.Result
 	ran     []string
+	cmds    []sh.Cmd
 }
 
 func (f *fakeShell) run(_ context.Context, c sh.Cmd) (sh.Result, error) {
 	f.ran = append(f.ran, c.String())
+	f.cmds = append(f.cmds, c)
 	for prefix, res := range f.answers {
 		if strings.HasPrefix(c.String(), prefix) {
 			if c.OnLine != nil && res.Output != "" {
@@ -39,6 +41,30 @@ func (f *fakeShell) run(_ context.Context, c sh.Cmd) (sh.Result, error) {
 	}
 	f.t.Errorf("unexpected command: %s", c.String())
 	return sh.Result{Code: 127}, nil
+}
+
+func TestCmdSeesVars(t *testing.T) {
+	e, fs := newEngine(t, `
+version: 1
+components:
+  - id: setup
+    group: g
+    cmds: [{name: setup, check: "check-code", run: "run-code", secrets: [TOKEN]}]
+`, map[string]string{}, map[string]sh.Result{
+		"check-code": {Code: 1},
+		"run-code":   {Code: 0},
+	})
+	e.Env.Vars = map[string]string{"CODE": "/home/me/code"}
+	require.NoError(t, e.Secrets.Set("TOKEN", "secret"))
+
+	statuses := plan(t, e, "setup")
+	assert.Equal(t, []string{"CODE=/home/me/code"}, fs.cmds[0].Env)
+	outcomes := e.Apply(context.Background(), statuses, Decisions{}, nil)
+	require.Len(t, outcomes, 1)
+	assert.Equal(t, Done, outcomes[0].Kind)
+	require.Len(t, fs.cmds, 2)
+	assert.Equal(t, []string{"CODE=/home/me/code"}, fs.cmds[0].Env)
+	assert.ElementsMatch(t, []string{"CODE=/home/me/code", "TOKEN=secret"}, fs.cmds[1].Env)
 }
 
 // newEngine builds an engine over a temp repo and HOME with a fake shell.
@@ -109,6 +135,30 @@ components:
 	assert.Equal(t, action.BothChanged, cfg.State, "worst action wins")
 	assert.Contains(t, cfg.Summary, "~/.f missing")
 	assert.Contains(t, cfg.Summary, "~/.s both-changed")
+}
+
+func TestExpandedTargetsAndDecisionKeys(t *testing.T) {
+	e, _ := newEngine(t, `
+version: 1
+vars: {CODE: ~/code}
+components:
+  - id: paths
+    group: g
+    links: [{src: f, dst: "${CODE}/link"}]
+    seeds: [{src: s, dst: "${CODE}/seed"}]
+    layouts: {src: layouts, dst: "${CODE}/layouts", files: [state.json]}
+`, map[string]string{"f": "x", "s": "x"}, nil)
+	e.Env.Vars = map[string]string{"CODE": filepath.Join(e.Env.Home, "code")}
+	statuses := plan(t, e, "paths")
+	require.Len(t, statuses, 1)
+	actions := statuses[0].Actions
+	require.Len(t, actions, 3)
+	assert.Equal(t, "~/code/link", actions[0].Target)
+	assert.Equal(t, "link:~/code/link", actions[0].Key())
+	assert.Equal(t, "~/code/seed", actions[1].Target)
+	assert.Equal(t, "seed:~/code/seed", actions[1].Key())
+	assert.Equal(t, "~/code/layouts", actions[2].Target)
+	assert.Equal(t, "layouts:~/code/layouts", actions[2].Key())
 }
 
 func TestApplyOrderAndFailureIsolation(t *testing.T) {

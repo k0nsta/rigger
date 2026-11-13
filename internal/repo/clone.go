@@ -93,6 +93,13 @@ func Clone(ctx context.Context, r Runner, url, dir string, prompt TokenPrompt, o
 	}
 
 	clone := sh.Cmd{Path: "git", Args: []string{"clone", url, dir}, OnLine: onLine}
+	remote, remoteErr := ParseRemote(url)
+	if remoteErr == nil && remote.Host != "local" && !remote.HTTPS && os.Getenv("GIT_SSH_COMMAND") == "" && os.Getenv("GIT_SSH") == "" {
+		configured, _ := r.Run(ctx, sh.Cmd{Path: "git", Args: []string{"config", "--global", "--get", "core.sshCommand"}})
+		if strings.TrimSpace(configured.Output) == "" {
+			clone.Env = []string{"GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new"}
+		}
+	}
 	res, err := r.Run(ctx, clone)
 	if err != nil {
 		return err
@@ -102,7 +109,7 @@ func Clone(ctx context.Context, r Runner, url, dir string, prompt TokenPrompt, o
 	}
 	remote, perr := ParseRemote(url)
 	if perr != nil || !remote.HTTPS || !authFailure(res.Output) || prompt == nil {
-		return fmt.Errorf("git clone failed: %s", lastLine(res.Output))
+		return fmt.Errorf("git clone failed: %s", cloneError(res.Output))
 	}
 
 	token, err := prompt(remote.Host)
@@ -128,7 +135,7 @@ func run(ctx context.Context, r Runner, c sh.Cmd, what string) error {
 		return err
 	}
 	if res.Code != 0 {
-		return fmt.Errorf("%s failed: %s", what, lastLine(res.Output))
+		return fmt.Errorf("%s failed: %s", what, sh.LastLines(res.Output, 1))
 	}
 	return nil
 }
@@ -143,12 +150,18 @@ func authFailure(out string) bool {
 	return false
 }
 
-func lastLine(out string) string {
-	lines := sh.Lines(out)
+func cloneError(out string) string {
+	var lines []string
+	for _, line := range sh.Lines(out) {
+		if line == "Please make sure you have the correct access rights" || line == "and the repository exists." {
+			continue
+		}
+		lines = append(lines, line)
+	}
 	if len(lines) == 0 {
 		return "no output"
 	}
-	return lines[len(lines)-1]
+	return sh.LastLines(strings.Join(lines, "\n"), 4)
 }
 
 // askpassHelper writes a script that answers git's username/password prompts from the

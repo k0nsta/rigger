@@ -59,6 +59,49 @@ func TestChanges(t *testing.T) {
 	assert.ElementsMatch(t, []Change{{Path: "zsh/.zshrc", Code: " M"}, {Path: "hosts/a.yaml", Code: "??"}}, changes)
 }
 
+func TestHomePathWarnings(t *testing.T) {
+	ctx := context.Background()
+	t.Run("swapped linked path", func(t *testing.T) {
+		a, _ := machines(t)
+		testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "config=~/Library/Tool\n")
+		// Replace the tracked tilde path with its absolute equivalent.
+		git(t, a.Repo, "checkout", "--", "zsh/.zshrc")
+		testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "config=~/Library/Tool\n")
+		git(t, a.Repo, "add", "zsh/.zshrc")
+		git(t, a.Repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "tilde path")
+		testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "config=/home/box/Library/Tool\n")
+		changes, err := a.Changes(ctx)
+		require.NoError(t, err)
+		warnings, err := a.HomePathWarnings(ctx, changes, []string{"zsh/.zshrc"}, "/home/box")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"zsh/.zshrc: replaces ~/Library/Tool with this machine's home path"}, warnings)
+	})
+	t.Run("file under linked directory", func(t *testing.T) {
+		a, _ := machines(t)
+		path := "zsh/nested/config"
+		testutil.WriteFile(t, filepath.Join(a.Repo, path), "config=~/Library/Tool\n")
+		git(t, a.Repo, "add", path)
+		git(t, a.Repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "nested config")
+		testutil.WriteFile(t, filepath.Join(a.Repo, path), "config=/home/box/Library/Tool\n")
+
+		changes, err := a.Changes(ctx)
+		require.NoError(t, err)
+		warnings, err := a.HomePathWarnings(ctx, changes, []string{"zsh"}, "/home/box")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"zsh/nested/config: replaces ~/Library/Tool with this machine's home path"}, warnings)
+	})
+	t.Run("added path alone and outside link", func(t *testing.T) {
+		a, _ := machines(t)
+		testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "config=/home/box/Library/Tool\n")
+		testutil.WriteFile(t, filepath.Join(a.Repo, "other.txt"), "config=~/Library/Tool\nconfig=/home/box/Library/Tool\n")
+		changes, err := a.Changes(ctx)
+		require.NoError(t, err)
+		warnings, err := a.HomePathWarnings(ctx, changes, []string{"zsh/.zshrc"}, "/home/box")
+		require.NoError(t, err)
+		assert.Empty(t, warnings)
+	})
+}
+
 func TestCommitPushPullAcrossMachines(t *testing.T) {
 	ctx := context.Background()
 	a, b := machines(t)
@@ -318,4 +361,3 @@ func TestPullWithoutAnswerTimesOut(t *testing.T) {
 	assert.Contains(t, err.Error(), "approve the SSH key")
 	assert.Less(t, time.Since(start), 10*time.Second, "the ssh grandchild is killed too")
 }
-

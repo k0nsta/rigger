@@ -40,6 +40,10 @@ func (s Status) Settled() bool {
 type Env struct {
 	Home string
 	Repo string
+	// Vars are the per-session manifest variables used by paths and commands.
+	Vars map[string]string
+	// VarSources records which file supplied each variable's effective value.
+	VarSources map[string]string
 	// PrevRepo is the remembered repo path when the repo now lives elsewhere.
 	PrevRepo string
 	// BackupRoot holds this run's backups; a timestamped dir is created on first use.
@@ -51,6 +55,26 @@ type Env struct {
 
 // Expand resolves a manifest dst (with ~) to an absolute path.
 func (e *Env) Expand(path string) string {
+	for start := 0; start < len(path); {
+		i := strings.Index(path[start:], "${")
+		if i < 0 {
+			break
+		}
+		start += i
+		end := strings.IndexByte(path[start+2:], '}')
+		if end < 0 {
+			break
+		}
+		end += start + 2
+		name := path[start+2 : end]
+		value, ok := e.Vars[name]
+		if !ok {
+			start = end + 1
+			continue
+		}
+		path = path[:start] + value + path[end+1:]
+		start += len(value)
+	}
 	if path == "~" {
 		return e.Home
 	}

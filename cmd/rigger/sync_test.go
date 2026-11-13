@@ -144,7 +144,7 @@ components:
   - {id: zsh, group: shell, links: [{src: zsh/.zshrc, dst: ~/.zshrc}]}
   - {id: git, group: shell, links: [{src: git/.gitconfig, dst: ~/.gitconfig}]}
 `,
-		"zsh/.zshrc":     "# zsh\n",
+		"zsh/.zshrc":     "# zsh\npath=~/Library/Tool\n",
 		"git/.gitconfig": "# git\n",
 		"hosts/box.yaml": "profile: laptop\n",
 	})
@@ -158,6 +158,68 @@ components:
 	gitT(t, repo, "config", "user.name", "box")
 	gitT(t, repo, "config", "user.email", "box@example.com")
 	return repo, remote
+}
+
+func addSyncComponent(t *testing.T, repo, component string) {
+	t.Helper()
+	path := filepath.Join(repo, "manifest.yaml")
+	data := testutil.ReadFile(t, path)
+	data = strings.Replace(data, "components: [zsh, git]", "components: [zsh, git, "+component+"]", 1)
+	data += "  - {id: " + component + ", group: shell, cmds: [{check: \"false\", run: \"false\"}]}\n"
+	testutil.WriteFile(t, path, data)
+	gitT(t, repo, "add", "manifest.yaml")
+	gitT(t, repo, "-c", "user.name=box", "-c", "user.email=box@example.com", "commit", "-q", "-m", "add "+component)
+}
+
+func TestSyncNotFinished(t *testing.T) {
+	for _, noPush := range []bool{false, true} {
+		name := "push"
+		if noPush {
+			name = "no-push"
+		}
+		t.Run(name, func(t *testing.T) {
+			repo, remote := syncRepo(t)
+			addSyncComponent(t, repo, "broken")
+			c, out := newCLI(t, true)
+			args := []string{"sync", "--yes", "--repo", repo, "--host", "box"}
+			if noPush {
+				args = append(args, "--no-push")
+			}
+			err := c.run(context.Background(), args)
+			require.ErrorContains(t, err, "not finished: failed [broken], skipped []")
+			assert.NotContains(t, out.String(), "in sync")
+			if noPush {
+				assert.Contains(t, out.String(), "not pushed (--no-push)")
+				assert.NotContains(t, gitT(t, remote, "show", "main:manifest.yaml"), "id: broken")
+			} else {
+				assert.Contains(t, gitT(t, remote, "show", "main:manifest.yaml"), "id: broken", "the push happens before reporting apply failures")
+			}
+		})
+	}
+}
+
+func TestSyncListsWaitingSecrets(t *testing.T) {
+	repo, _ := syncRepo(t)
+	path := filepath.Join(repo, "manifest.yaml")
+	data := testutil.ReadFile(t, path)
+	data = strings.Replace(data, "components: [zsh, git]", "components: [zsh, git, private]", 1)
+	data += "  - {id: private, group: shell, cmds: [{check: \"false\", run: \"true\", secrets: [TOKEN]}]}\n"
+	testutil.WriteFile(t, path, data)
+	gitT(t, repo, "add", "manifest.yaml")
+	gitT(t, repo, "-c", "user.name=box", "-c", "user.email=box@example.com", "commit", "-q", "-m", "add private")
+	c, out := newCLI(t, true)
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--yes", "--no-push", "--repo", repo, "--host", "box"}))
+	assert.Contains(t, out.String(), "waiting for a secret: private")
+	assert.Contains(t, out.String(), "missing secrets (components needing them are skipped): TOKEN")
+	assert.NotContains(t, out.String(), "not finished:")
+	assert.NotContains(t, out.String(), "in sync")
+}
+
+func TestSyncCleanRunSaysInSync(t *testing.T) {
+	repo, _ := syncRepo(t)
+	c, out := newCLI(t, true)
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--yes", "--repo", repo, "--host", "box"}))
+	assert.Contains(t, out.String(), "in sync")
 }
 
 func TestSyncAppliesPickedAndDropsFromHost(t *testing.T) {
@@ -203,6 +265,58 @@ func TestSyncCommitsOneChangeAndKeepsTheOther(t *testing.T) {
 	assert.Contains(t, gitT(t, repo, "status", "--porcelain"), " M zsh/.zshrc", "and stays uncommitted")
 }
 
+func TestSyncWarnsAboutHomePath(t *testing.T) {
+	repo, _ := syncRepo(t)
+	c, out := newCLI(t, true)
+	testutil.WriteFile(t, filepath.Join(repo, "zsh", ".zshrc"), "# zsh\npath="+filepath.Join(c.home, "Library/Tool")+"\n")
+	c.in = strings.NewReader("none\n")
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--repo", repo, "--host", "box", "--no-push"}))
+
+	got := out.String()
+	warning := "warning: zsh/.zshrc: replaces ~/Library/Tool with this machine's home path"
+	assert.Contains(t, got, warning)
+	assert.Less(t, strings.Index(got, warning), strings.Index(got, "commit which?"), "warning appears before the commit question")
+	assert.NotContains(t, got, "committed 1 file(s)")
+}
+
+func TestSyncYesWarnsAndCommitsHomePath(t *testing.T) {
+	repo, _ := syncRepo(t)
+	c, out := newCLI(t, true)
+	testutil.WriteFile(t, filepath.Join(repo, "zsh", ".zshrc"), "# zsh\npath="+filepath.Join(c.home, "Library/Tool")+"\n")
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--yes", "--no-push", "--repo", repo, "--host", "box"}))
+
+	assert.Contains(t, out.String(), "warning: zsh/.zshrc: replaces ~/Library/Tool with this machine's home path")
+	assert.Contains(t, out.String(), "committed 1 file(s)")
+	assert.Equal(t, "# zsh\npath="+filepath.Join(c.home, "Library/Tool")+"\n", gitT(t, repo, "show", "HEAD:zsh/.zshrc"))
+}
+
+func TestSyncSaysSeedKept(t *testing.T) {
+	seed := testutil.Tree(t, map[string]string{
+		"manifest.yaml": `version: 1
+profiles:
+  laptop: {components: [config]}
+components:
+  - {id: config, group: shell, seeds: [{src: config.toml, dst: ~/.config/tool/config.toml}]}
+`,
+		"config.toml":    "theme = \"repo\"\n",
+		"hosts/box.yaml": "profile: laptop\n",
+	})
+	gitT(t, seed, "init", "-q", "-b", "main")
+	gitT(t, seed, "add", ".")
+	gitT(t, seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
+	remote := filepath.Join(t.TempDir(), "setup.git")
+	gitT(t, "", "clone", "-q", "--bare", seed, remote)
+	repo := filepath.Join(t.TempDir(), "setup")
+	gitT(t, "", "clone", "-q", remote, repo)
+	gitT(t, repo, "config", "user.name", "box")
+	gitT(t, repo, "config", "user.email", "box@example.com")
+	c, out := newCLI(t, true)
+	testutil.WriteFile(t, filepath.Join(c.home, ".config", "tool", "config.toml"), "theme = \"local\"\n")
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--yes", "--no-push", "--repo", repo, "--host", "box"}))
+	assert.Contains(t, out.String(), "both the template and live file changed; kept the live file")
+	assert.Equal(t, "theme = \"local\"\n", testutil.ReadFile(t, filepath.Join(c.home, ".config", "tool", "config.toml")))
+}
+
 func TestSyncStopsWhenALeftOutFileChangedOnTheRemote(t *testing.T) {
 	repo, remote := syncRepo(t)
 	other := filepath.Join(t.TempDir(), "other")
@@ -229,10 +343,11 @@ func TestConflictFix(t *testing.T) {
 
 func TestDecideReplacedLinks(t *testing.T) {
 	replaced := []engine.ComponentStatus{{Component: &manifest.Component{ID: "zsh"}, Actions: []engine.ActionStatus{
-		{Kind: engine.KindLink, Target: "~/.zshrc", Status: action.Differs},
+		// This target comes from a manifest dst of ${CODE}/.zshrc.
+		{Kind: engine.KindLink, Target: "~/code/.zshrc", Status: action.Differs},
 		{Kind: engine.KindLink, Target: "~/.gitconfig", Status: action.Missing},
 	}}}
-	key := "link:~/.zshrc"
+	key := "link:~/code/.zshrc"
 	tests := map[string]struct {
 		yes          bool
 		input        string
@@ -253,7 +368,8 @@ func TestDecideReplacedLinks(t *testing.T) {
 			assert.Equal(t, tt.leave, d.Leave[key])
 			assert.False(t, d.Leave["link:~/.gitconfig"], "a missing link is created as usual")
 			if tt.yes {
-				assert.Contains(t, out.String(), "rigger adopt ~/.zshrc")
+				assert.Contains(t, out.String(), "warning: ~/code/.zshrc is a real file now")
+				assert.Contains(t, out.String(), "rigger adopt ~/code/.zshrc")
 			}
 		})
 	}

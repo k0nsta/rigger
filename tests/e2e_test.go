@@ -103,6 +103,18 @@ func remoteFromExample(t *testing.T) string {
 	return bare
 }
 
+func remoteFromManifest(t *testing.T, contents string) string {
+	t.Helper()
+	work := t.TempDir()
+	testutil.WriteFile(t, filepath.Join(work, "manifest.yaml"), contents)
+	gitIn(t, work, "init", "-q", "-b", "main")
+	gitIn(t, work, "add", ".")
+	gitIn(t, work, "commit", "-q", "-m", "init")
+	bare := filepath.Join(t.TempDir(), "setup.git")
+	gitIn(t, "", "clone", "-q", "--bare", work, bare)
+	return bare
+}
+
 func TestApplyAndRerunIsNoop(t *testing.T) {
 	m := newMachine(t)
 	repo := filepath.Join(m.home, "setup")
@@ -246,6 +258,43 @@ func TestSyncRoundTripBetweenMachines(t *testing.T) {
 	assert.NotContains(t, log, "git/.gitconfig")
 }
 
+func TestVarsAcrossMachines(t *testing.T) {
+	remote := remoteFromManifest(t, `version: 1
+vars:
+  CODE: ~/github.com
+groups: [base]
+profiles:
+  default:
+    components: [code-marker]
+components:
+  - id: code-marker
+    group: base
+    cmds:
+      - name: create marker in CODE
+        check: test -f "$CODE/marker"
+        run: mkdir -p "$CODE" && printf marker > "$CODE/marker"
+`)
+	a, b := newMachine(t), newMachine(t)
+	repoA, repoB := filepath.Join(a.home, "setup"), filepath.Join(b.home, "setup")
+	a.rigger(true, "init", remote, "--dir", repoA, "--no-run")
+	b.rigger(true, "init", remote, "--dir", repoB, "--no-run")
+
+	// The host override is kept when apply writes the machine's component selection.
+	testutil.WriteFile(t, filepath.Join(repoB, "hosts", "b.yaml"), "vars:\n  CODE: ~/code\n")
+
+	a.rigger(true, "apply", "--yes", "--only", "code-marker", "--host", "a")
+	b.rigger(true, "apply", "--yes", "--only", "code-marker", "--host", "b")
+
+	assert.FileExists(t, filepath.Join(a.home, "github.com", "marker"))
+	assert.FileExists(t, filepath.Join(b.home, "code", "marker"))
+	assert.NoFileExists(t, filepath.Join(b.home, "github.com", "marker"))
+
+	out := a.rigger(true, "status", "--host", "a")
+	assert.Contains(t, out, "vars: CODE=~/github.com (manifest.yaml)")
+	out = b.rigger(true, "status", "--host", "b")
+	assert.Contains(t, out, "vars: CODE=~/code (hosts/b.yaml)")
+}
+
 func TestInstallScript(t *testing.T) {
 	if _, err := exec.LookPath("shasum"); err != nil {
 		if _, err := exec.LookPath("sha256sum"); err != nil {
@@ -349,4 +398,24 @@ func TestSyncLeavesALinkReplacedByARealFile(t *testing.T) {
 	m.rigger(true, "adopt", "~/.gitconfig", "--host", "a")
 	assert.Equal(t, filepath.Join(repoDir, "git", ".gitconfig"), testutil.Readlink(t, live))
 	assert.Contains(t, testutil.ReadFile(t, filepath.Join(repoDir, "git", ".gitconfig")), "edited in place")
+}
+
+func TestApplyLeavesALinkReplacedByARealFile(t *testing.T) {
+	remote := remoteFromExample(t)
+	m := newMachine(t)
+	repoDir := filepath.Join(m.home, "setup")
+	m.rigger(true, "init", remote, "--dir", repoDir, "--no-run")
+	m.rigger(true, "apply", "--yes", "--only", "git", "--host", "a")
+	// --only is a one-off selection, so seed the host file to model a configured machine.
+	testutil.WriteFile(t, filepath.Join(repoDir, "hosts", "a.yaml"), "profile: server\n")
+
+	live := filepath.Join(m.home, ".gitconfig")
+	require.NoError(t, os.Remove(live))
+	testutil.WriteFile(t, live, "[user]\n  name = edited in place\n")
+	out := m.rigger(true, "apply", "--yes", "--host", "a", "--only", "git")
+	assert.Contains(t, out, "warning: ~/.gitconfig is a real file now, with other content than the repo's; left as it is.")
+	assert.Contains(t, out, "rigger adopt ~/.gitconfig")
+	assert.Contains(t, out, "left ~/.gitconfig as it is")
+	assert.Equal(t, "[user]\n  name = edited in place\n", testutil.ReadFile(t, live), "the edit is not moved to a backup")
+	assert.NoDirExists(t, filepath.Join(m.home, ".local", "state", "rigger", "backups"))
 }

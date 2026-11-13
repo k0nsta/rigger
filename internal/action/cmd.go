@@ -13,6 +13,7 @@ import (
 type Command struct {
 	manifest.Cmd
 	Repo string
+	Env  []string
 }
 
 // Label is the name shown in the TUI.
@@ -37,7 +38,7 @@ func (c Command) Probe(ctx context.Context, r Runner, secrets *Secrets) (Command
 	if c.Check == "" {
 		return CommandProbe{Status: Todo, Detail: "runs every time"}, nil
 	}
-	res, err := r.Run(ctx, sh.Cmd{Script: c.Check, Dir: c.Repo})
+	res, err := r.Run(ctx, sh.Cmd{Script: c.Check, Dir: c.Repo, Env: c.Env})
 	if err != nil {
 		return CommandProbe{}, err
 	}
@@ -53,6 +54,7 @@ func (c Command) Apply(ctx context.Context, r Runner, secrets *Secrets, onLine f
 	if err != nil {
 		return err
 	}
+	env = append(env, c.Env...)
 	res, err := r.Run(ctx, sh.Cmd{Script: c.Run, Dir: c.Repo, Env: env, OnLine: onLine})
 	if err != nil {
 		return err

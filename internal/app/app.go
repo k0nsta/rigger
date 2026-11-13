@@ -105,6 +105,9 @@ func Open(opts Options) (*Session, error) {
 		Host:     s.Host,
 		AppPaths: action.DefaultAppPaths(home),
 	}
+	if err := s.mergeHostVars(s.Host, s.HostFile); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -158,8 +161,44 @@ func (s *Session) SetHost(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := s.mergeHostVars(name, hf); err != nil {
+		return "", err
+	}
 	s.Host, s.HostFile, s.Engine.Host = name, hf, name
 	return name, nil
+}
+
+// mergeHostVars validates host overrides, validates destinations with the effective values,
+// and installs the expanded values and their source files in the action environment.
+func (s *Session) mergeHostVars(host string, hf *state.HostFile) error {
+	vars := make(map[string]string, len(s.Manifest.Vars))
+	rawVars := make(map[string]string, len(s.Manifest.Vars))
+	sources := make(map[string]string, len(s.Manifest.Vars))
+	for name, value := range s.Manifest.Vars {
+		rawVars[name] = value
+		vars[name] = manifest.ExpandHome(value, s.Home)
+		sources[name] = manifest.FileName
+	}
+	if hf != nil {
+		for name, value := range hf.Vars {
+			if err := manifest.CheckVar(name, value); err != nil {
+				return fmt.Errorf("hosts/%s.yaml: vars: %w", host, err)
+			}
+			rawVars[name] = value
+			vars[name] = manifest.ExpandHome(value, s.Home)
+			sources[name] = fmt.Sprintf("hosts/%s.yaml", host)
+		}
+	}
+
+	// Validate raw merged values so ~/ destinations can be compared using the same home marker,
+	// including when one destination uses a variable and the other writes ~/ literally.
+	merged := *s.Manifest
+	merged.Vars = rawVars
+	if err := merged.Validate(s.Repo); err != nil {
+		return fmt.Errorf("hosts/%s.yaml: %w", host, err)
+	}
+	s.Engine.Env.Vars, s.Engine.Env.VarSources = vars, sources
+	return nil
 }
 
 func (s *Session) opRead(ctx context.Context, ref string) (string, error) {
@@ -313,6 +352,7 @@ func (s *Session) Save(sel Selection) error {
 	}
 	if s.HostFile != nil {
 		hf.IgnorePackages = s.HostFile.IgnorePackages
+		hf.Vars = s.HostFile.Vars
 	}
 	if err := hf.Save(state.HostPath(s.Repo, s.Host)); err != nil {
 		return err
@@ -494,7 +534,7 @@ func (s *Session) Adopt(ctx context.Context, path string) (string, error) {
 			if err := s.Local.Save(s.LocalPath); err != nil {
 				return "", err
 			}
-			msg := fmt.Sprintf("%s: template %s updated from %s", c.ID, sd.Src, sd.Dst)
+			msg := fmt.Sprintf("%s: template %s updated from %s", c.ID, sd.Src, sh.Tilde(s.Home, seed.Dst))
 			if len(unmatched) > 0 {
 				msg += fmt.Sprintf(" (warning: %s not found in the file, its placeholder is gone)", strings.Join(unmatched, ", "))
 			}
@@ -511,14 +551,14 @@ func (s *Session) Adopt(ctx context.Context, path string) (string, error) {
 			}
 			switch p.Status {
 			case action.OK:
-				return fmt.Sprintf("%s: %s is already linked; edits are tracked in %s", c.ID, l.Dst, l.Src), nil
+				return fmt.Sprintf("%s: %s is already linked; edits are tracked in %s", c.ID, sh.Tilde(s.Home, link.Dst), l.Src), nil
 			case action.Differs:
 				if _, err := link.Apply(env, action.AdoptLive); err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("%s: %s copied into %s and linked", c.ID, l.Dst, l.Src), nil
+				return fmt.Sprintf("%s: %s copied into %s and linked", c.ID, sh.Tilde(s.Home, link.Dst), l.Src), nil
 			default:
-				return "", fmt.Errorf("%s: %s is %s (%s); only a real file can be adopted", c.ID, l.Dst, p.Status, p.Detail)
+				return "", fmt.Errorf("%s: %s is %s (%s); only a real file can be adopted", c.ID, sh.Tilde(s.Home, link.Dst), p.Status, p.Detail)
 			}
 		}
 	}

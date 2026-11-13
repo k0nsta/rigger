@@ -70,6 +70,12 @@ func TestLines(t *testing.T) {
 	assert.Nil(t, Lines(""))
 }
 
+func TestLastLines(t *testing.T) {
+	assert.Equal(t, "b | c", LastLines("a\n\nb\n c \n", 2))
+	assert.Equal(t, "a | b", LastLines("a\nb", 4))
+	assert.Empty(t, LastLines("a\nb", 0))
+}
+
 func TestCmdString(t *testing.T) {
 	assert.Equal(t, "echo hi", Cmd{Script: "echo hi"}.String())
 	assert.Equal(t, "brew list --cask", Cmd{Path: "brew", Args: []string{"list", "--cask"}}.String())

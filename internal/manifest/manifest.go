@@ -28,6 +28,8 @@ const SchemaVersion = 1
 // Manifest is the parsed manifest.yaml.
 type Manifest struct {
 	Version int `yaml:"version"`
+	// Vars are the default values for per-machine variables used in dst paths and cmds.
+	Vars map[string]string `yaml:"vars,omitempty"`
 	// Groups orders the component list; when set, every component group must be listed.
 	Groups     []string           `yaml:"groups"`
 	Profiles   map[string]Profile `yaml:"profiles"`

@@ -150,6 +150,59 @@ func TestStatusAndApply(t *testing.T) {
 	assert.Regexp(t, `(?m)^git\s+ok`, out.String())
 }
 
+func TestStatusShowsVars(t *testing.T) {
+	tests := []struct {
+		name       string
+		manifest   string
+		host       string
+		want       string
+		wantAbsent string
+	}{
+		{
+			name:     "default",
+			manifest: "vars:\n  CODE: ~/github.com\n",
+			want:     "vars: CODE=~/github.com (manifest.yaml)",
+		},
+		{
+			name:       "override",
+			manifest:   "vars:\n  CODE: ~/github.com\n",
+			host:       "vars:\n  CODE: ~/code\n",
+			want:       "vars: CODE=~/code (hosts/box.yaml)",
+			wantAbsent: "CODE=~/github.com",
+		},
+		{
+			name:       "undeclared host var",
+			host:       "vars:\n  EXTRA: ~/extra\n",
+			want:       "warning: hosts/box.yaml: var EXTRA is not declared in manifest vars",
+			wantAbsent: "vars: EXTRA=",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := copyExample(t)
+			manifestPath := filepath.Join(repo, "manifest.yaml")
+			manifestData, err := os.ReadFile(manifestPath)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(manifestPath, append([]byte(tt.manifest), manifestData...), 0o644))
+			if tt.host != "" {
+				testutil.WriteFile(t, filepath.Join(repo, "hosts", "box.yaml"), tt.host)
+			}
+			c, out := newCLI(t, false)
+			err = c.run(context.Background(), []string{"status", "--repo", repo, "--host", "box", "--profile", "laptop", "--only", "git"})
+			var code exitCode
+			if errors.As(err, &code) {
+				require.Equal(t, exitCode(1), code)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Contains(t, out.String(), tt.want)
+			if tt.wantAbsent != "" {
+				assert.NotContains(t, out.String(), tt.wantAbsent)
+			}
+		})
+	}
+}
+
 func TestApplyNeedsProfileOnFirstRun(t *testing.T) {
 	c, _ := newCLI(t, false)
 	err := c.run(context.Background(), []string{"status", "--repo", copyExample(t), "--host", "new"})
@@ -158,12 +211,86 @@ func TestApplyNeedsProfileOnFirstRun(t *testing.T) {
 
 func TestApplyConfirm(t *testing.T) {
 	repo := copyExample(t)
+	testutil.WriteFile(t, filepath.Join(repo, "hosts", "h.yaml"), "profile: server\n")
 	c, out := newCLI(t, true)
+	require.NoError(t, c.run(context.Background(), []string{"apply", "--yes", "--repo", repo, "--host", "h", "--only", "git"}))
+	live := filepath.Join(c.home, ".gitconfig")
+	require.NoError(t, os.Remove(live))
+	testutil.WriteFile(t, live, "[user]\n  name = edited\n")
+	out.Reset()
 	c.in = strings.NewReader("n\n")
 	err := c.run(context.Background(), []string{"apply", "--repo", repo, "--host", "h", "--only", "git"})
 	require.ErrorContains(t, err, "cancelled")
 	assert.Contains(t, out.String(), "apply 1 component(s)? [y/N]")
-	assert.NoFileExists(t, filepath.Join(c.home, ".gitconfig"))
+	assert.NotContains(t, out.String(), "is a real file now")
+	assert.Equal(t, "[user]\n  name = edited\n", testutil.ReadFile(t, live))
+}
+
+func TestApplyAsksAboutReplacedLink(t *testing.T) {
+	repo := copyExample(t)
+	testutil.WriteFile(t, filepath.Join(repo, "hosts", "h.yaml"), "profile: server\n")
+	c, out := newCLI(t, true)
+	require.NoError(t, c.run(context.Background(), []string{"apply", "--yes", "--repo", repo, "--host", "h", "--only", "git"}))
+	live := filepath.Join(c.home, ".gitconfig")
+	require.NoError(t, os.Remove(live))
+	testutil.WriteFile(t, live, "[user]\n  name = edited\n")
+	out.Reset()
+	c.in = strings.NewReader("y\nk\n")
+	require.NoError(t, c.run(context.Background(), []string{"apply", "--repo", repo, "--host", "h", "--only", "git"}))
+	assert.Contains(t, out.String(), "apply 1 component(s)? [y/N]")
+	assert.Contains(t, out.String(), "choice [a/k/enter]: ")
+	assert.Equal(t, filepath.Join(repo, "git", ".gitconfig"), testutil.Readlink(t, live))
+	backups, err := filepath.Glob(filepath.Join(c.home, ".local", "state", "rigger", "backups", "*", ".gitconfig"))
+	require.NoError(t, err)
+	require.Len(t, backups, 1)
+	assert.Contains(t, testutil.ReadFile(t, backups[0]), "name = edited")
+}
+
+func TestApplyYesLeavesReplacedLink(t *testing.T) {
+	repo := copyExample(t)
+	testutil.WriteFile(t, filepath.Join(repo, "hosts", "h.yaml"), "profile: server\n")
+	c, _ := newCLI(t, false)
+	require.NoError(t, c.run(context.Background(), []string{"apply", "--yes", "--repo", repo, "--host", "h", "--only", "git"}))
+	live := filepath.Join(c.home, ".gitconfig")
+	require.NoError(t, os.Remove(live))
+	testutil.WriteFile(t, live, "[user]\n  name = edited\n")
+	out := new(bytes.Buffer)
+	c.out, c.err = out, out
+	require.NoError(t, c.run(context.Background(), []string{"apply", "--yes", "--repo", repo, "--host", "h", "--only", "git"}))
+	assert.Contains(t, out.String(), "warning: ~/.gitconfig is a real file now")
+	assert.Contains(t, out.String(), "left ~/.gitconfig as it is")
+	assert.Equal(t, "[user]\n  name = edited\n", testutil.ReadFile(t, live))
+	backups, err := filepath.Glob(filepath.Join(c.home, ".local", "state", "rigger", "backups", "*"))
+	require.NoError(t, err)
+	assert.Empty(t, backups)
+}
+
+func TestApplyFirstRunLinks(t *testing.T) {
+	repo := copyExample(t)
+	c, _ := newCLI(t, false)
+	live := filepath.Join(c.home, ".gitconfig")
+	testutil.WriteFile(t, live, "[user]\n  name = pre-existing\n")
+	require.NoError(t, c.run(context.Background(), []string{"apply", "--yes", "--repo", repo, "--host", "new", "--only", "git"}))
+	assert.Equal(t, filepath.Join(repo, "git", ".gitconfig"), testutil.Readlink(t, live))
+	backups, err := filepath.Glob(filepath.Join(c.home, ".local", "state", "rigger", "backups", "*", ".gitconfig"))
+	require.NoError(t, err)
+	require.Len(t, backups, 1)
+	assert.Contains(t, testutil.ReadFile(t, backups[0]), "name = pre-existing")
+}
+
+func TestApplySaysSeedKept(t *testing.T) {
+	repo := copyExample(t)
+	testutil.WriteFile(t, filepath.Join(repo, "hosts", "h.yaml"), "profile: server\nadd: [tool-config]\n")
+	c, out := newCLI(t, false)
+	testutil.WriteFile(t, filepath.Join(c.home, ".config", "rigger", "secrets.env"), "TOOL_TOKEN=tok-123456\n")
+	require.NoError(t, c.run(context.Background(), []string{"apply", "--yes", "--repo", repo, "--host", "h", "--only", "tool-config"}))
+	testutil.WriteFile(t, filepath.Join(repo, "tool", "config.toml"), "token = \"${TOOL_TOKEN}\"\ntheme = \"dark\"\n")
+	live := filepath.Join(c.home, ".config", "tool", "config.toml")
+	testutil.WriteFile(t, live, "token = \"tok-123456\"\ntheme = \"local\"\n")
+	out.Reset()
+	require.NoError(t, c.run(context.Background(), []string{"apply", "--yes", "--repo", repo, "--host", "h", "--only", "tool-config"}))
+	assert.Contains(t, out.String(), "both the template and live file changed; kept the live file")
+	assert.Contains(t, testutil.ReadFile(t, live), "theme = \"local\"")
 }
 
 func TestInitClonesAndRemembers(t *testing.T) {
