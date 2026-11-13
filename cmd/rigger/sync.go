@@ -386,14 +386,15 @@ type retiredLayouts struct {
 }
 
 // exportLayouts snapshots app layouts of selected components for this host. A component the
-// remote's manifest dropped is not exported: its snapshot would only clash with the pull that
-// deletes it. Those are returned; without a remote answer every component is exported as before.
+// remote removed since this checkout last agreed with it is not exported: its snapshot would
+// only clash with the pull that deletes it. Those are returned. A component that is new or moved
+// only here is exported; without an answer from the remote every component is exported as before.
 func (c *cli) exportLayouts(ctx context.Context, s *app.Session, sel app.Selection, sy *syncer.Syncer) []retiredLayouts {
 	res, err := s.Manifest.Resolve(s.Platform, sel.Picked)
 	if err != nil {
 		return nil
 	}
-	var upstream *manifest.Manifest
+	var base, upstream *manifest.Manifest
 	fetched := false
 	var retired []retiredLayouts
 	for _, id := range res.Order {
@@ -402,17 +403,19 @@ func (c *cli) exportLayouts(ctx context.Context, s *app.Session, sel app.Selecti
 			continue
 		}
 		if !fetched {
-			upstream, fetched = upstreamManifest(ctx, sy), true
-		}
-		if upstream != nil {
-			if up := upstream.Component(id); up == nil || up.Layouts == nil || up.Layouts.Src != comp.Layouts.Src {
-				name := comp.Title
-				if name == "" {
-					name = id
-				}
-				retired = append(retired, retiredLayouts{name: name, dir: path.Join(filepath.ToSlash(path.Clean(comp.Layouts.Src)), s.Host)})
-				continue
+			base, upstream, fetched = remoteManifests(ctx, sy), nil, true
+			if base != nil {
+				upstream = parseManifest(sy.UpstreamFile(ctx, manifest.FileName))
 			}
+		}
+		src := layoutsSrc(comp)
+		if base != nil && upstream != nil && layoutsSrc(base.Component(id)) == src && layoutsSrc(upstream.Component(id)) != src {
+			name := comp.Title
+			if name == "" {
+				name = id
+			}
+			retired = append(retired, retiredLayouts{name: name, dir: path.Join(src, s.Host)})
+			continue
 		}
 		l := action.NewLayouts(s.Engine.Env, *comp.Layouts)
 		if n, err := l.Export(s.Home, s.Host); err != nil {
@@ -424,13 +427,25 @@ func (c *cli) exportLayouts(ctx context.Context, s *app.Session, sel app.Selecti
 	return retired
 }
 
-// upstreamManifest fetches and parses the remote's manifest; nil when offline, without an
-// upstream, or when it does not parse (a newer schema), so callers fall back to the local one.
-func upstreamManifest(ctx context.Context, sy *syncer.Syncer) *manifest.Manifest {
+// layoutsSrc is a component's snapshot dir, cleaned and slash-separated; "" without layouts.
+func layoutsSrc(comp *manifest.Component) string {
+	if comp == nil || comp.Layouts == nil {
+		return ""
+	}
+	return path.Clean(filepath.ToSlash(comp.Layouts.Src))
+}
+
+// remoteManifests fetches and returns the manifest at the merge base of this checkout and its
+// upstream; nil when offline, without an upstream, or when it does not parse (a newer schema),
+// so callers fall back to the local manifest.
+func remoteManifests(ctx context.Context, sy *syncer.Syncer) *manifest.Manifest {
 	if err := sy.Fetch(ctx); err != nil {
 		return nil
 	}
-	data, ok := sy.UpstreamFile(ctx, manifest.FileName)
+	return parseManifest(sy.BaseFile(ctx, manifest.FileName))
+}
+
+func parseManifest(data []byte, ok bool) *manifest.Manifest {
 	if !ok {
 		return nil
 	}

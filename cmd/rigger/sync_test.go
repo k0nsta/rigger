@@ -351,7 +351,7 @@ func TestSyncStopsWhenALeftOutFileChangedOnTheRemote(t *testing.T) {
 
 // layoutsRepo publishes a setup repo with a layouts component (laptop: zsh, layouts) and
 // this host's snapshot, and returns a clone of it and the remote.
-func layoutsRepo(t *testing.T) (repo, remote string) {
+func layoutsRepo(t *testing.T, snapshotHost string) (repo, remote string) {
 	t.Helper()
 	seed := testutil.Tree(t, map[string]string{
 		"manifest.yaml": `version: 1
@@ -362,7 +362,7 @@ components:
   - {id: layouts, title: app layouts, group: shell, layouts: {src: app/layouts, dst: ~/app, files: ["*.json"]}}
 `,
 		"zsh/.zshrc":                  "# zsh\n",
-		"app/layouts/box/window.json": "{\"w\": 1}\n",
+		"app/layouts/" + snapshotHost + "/window.json": "{\"w\": 1}\n",
 		"hosts/box.yaml":              "profile: laptop\n",
 	})
 	gitT(t, seed, "init", "-q", "-b", "main")
@@ -380,7 +380,16 @@ components:
 // Another machine removed the layouts component and its snapshots; this one still exported
 // its snapshot on every sync, so its pull always clashed with that delete.
 func TestSyncDropsLayoutsTheRemoteRemoved(t *testing.T) {
-	repo, remote := layoutsRepo(t)
+	for _, snapshotHost := range []string{"box", "other"} {
+		t.Run("snapshot of "+snapshotHost, func(t *testing.T) { syncDropsLayoutsTheRemoteRemoved(t, snapshotHost) })
+	}
+}
+
+// syncDropsLayoutsTheRemoteRemoved runs the case with the repo's snapshot made on snapshotHost:
+// on "other", box's exports were never committed, so every leftover file is new.
+func syncDropsLayoutsTheRemoteRemoved(t *testing.T, snapshotHost string) {
+	t.Helper()
+	repo, remote := layoutsRepo(t, snapshotHost)
 	other := filepath.Join(t.TempDir(), "other")
 	gitT(t, "", "clone", "-q", remote, other)
 	m := testutil.ReadFile(t, filepath.Join(other, "manifest.yaml"))
@@ -409,9 +418,25 @@ func TestSyncDropsLayoutsTheRemoteRemoved(t *testing.T) {
 	assert.Equal(t, "{\"w\": 2}\n", testutil.ReadFile(t, filepath.Join(c.home, "app", "window.json")), "the app's own file stays")
 }
 
+// A layouts component added here and not pushed yet is not one the remote removed.
+func TestSyncExportsLayoutsAddedOnlyHere(t *testing.T) {
+	repo, _ := syncRepo(t)
+	path := filepath.Join(repo, "manifest.yaml")
+	m := strings.Replace(testutil.ReadFile(t, path), "components: [zsh, git]", "components: [zsh, git, layouts]", 1)
+	m += "  - {id: layouts, group: shell, layouts: {src: app/layouts, dst: ~/app, files: [\"*.json\"]}}\n"
+	testutil.WriteFile(t, path, m)
+	gitT(t, repo, "-c", "user.name=box", "-c", "user.email=box@example.com", "commit", "-qam", "add layouts")
+	c, out := newCLI(t, true)
+	testutil.WriteFile(t, filepath.Join(c.home, "app", "window.json"), "{}\n")
+	require.NoError(t, c.run(context.Background(), []string{"sync", "--yes", "--no-push", "--repo", repo, "--host", "box"}))
+	assert.Contains(t, out.String(), "exported 1 layout file(s) of layouts")
+	assert.NotContains(t, out.String(), "removed from the repo on the remote")
+	assert.Equal(t, "{}\n", gitT(t, repo, "show", "HEAD:app/layouts/box/window.json"), "the export is committed")
+}
+
 // Without an answer from the remote, sync exports as it always did and the pull reports the error.
 func TestSyncExportsLayoutsWhenTheRemoteDoesNotAnswer(t *testing.T) {
-	repo, _ := layoutsRepo(t)
+	repo, _ := layoutsRepo(t, "box")
 	gitT(t, repo, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
 	c, out := newCLI(t, true)
 	testutil.WriteFile(t, filepath.Join(c.home, "app", "window.json"), "{\"w\": 2}\n")
