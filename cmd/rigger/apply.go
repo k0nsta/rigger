@@ -128,10 +128,24 @@ func (c *cli) apply(ctx context.Context, args []string) error {
 }
 
 func (c *cli) confirm(in *bufio.Reader, prompt string) bool {
+	return c.confirmDefault(in, prompt, false)
+}
+
+// confirmDefault asks a yes/no question; enter takes def, closed input says no.
+func (c *cli) confirmDefault(in *bufio.Reader, prompt string, def bool) bool {
 	fmt.Fprint(c.out, prompt)
-	line, _ := in.ReadString('\n')
-	answer := strings.ToLower(strings.TrimSpace(line))
-	return answer == "y" || answer == "yes"
+	line, err := in.ReadString('\n')
+	if err != nil && line == "" {
+		fmt.Fprintln(c.out)
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "":
+		return def
+	case "y", "yes":
+		return true
+	}
+	return false
 }
 
 // decideReplacedLinks asks what to do with each link whose target a tool replaced with a real
