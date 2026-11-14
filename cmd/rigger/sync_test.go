@@ -259,6 +259,7 @@ func TestSyncCommitsOneChangeAndKeepsTheOther(t *testing.T) {
 	c.in = strings.NewReader("1\nnone\n")
 	require.NoError(t, c.run(context.Background(), []string{"sync", "--repo", repo, "--host", "box"}))
 
+	assert.Contains(t, out.String(), "  [1] changed  git/.gitconfig\n  [2] changed  zsh/.zshrc\n", "states in words, not git's codes")
 	assert.Contains(t, out.String(), "committed 1 file(s)")
 	assert.Equal(t, "# git, edited\n", gitT(t, remote, "show", "main:git/.gitconfig"), "the picked change is pushed")
 	assert.Equal(t, "# zsh, edited\n", testutil.ReadFile(t, filepath.Join(repo, "zsh", ".zshrc")), "the other edit stays")

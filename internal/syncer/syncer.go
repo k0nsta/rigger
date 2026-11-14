@@ -32,6 +32,90 @@ type Change struct {
 // so there is nothing in the worktree to stage.
 func (c Change) staged() bool { return c.Code[0] != ' ' && c.Code[0] != '?' && c.Code[1] == ' ' }
 
+// State says in words what happened to the path: new, changed, deleted, renamed, copied or
+// conflict (an unfinished merge).
+func (c Change) State() string {
+	x, y := c.Code[0], c.Code[1]
+	switch {
+	case c.Code == "??":
+		return "new"
+	case x == 'U' || y == 'U' || c.Code == "AA" || c.Code == "DD":
+		return "conflict"
+	case x == 'R':
+		return "renamed"
+	case x == 'C':
+		return "copied"
+	case x == 'D' || y == 'D':
+		return "deleted"
+	case x == 'A':
+		return "new"
+	}
+	return "changed"
+}
+
+// ListPaths names up to three paths and counts the rest.
+func ListPaths(paths []string) string {
+	if len(paths) <= 3 {
+		return strings.Join(paths, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(paths[:3], ", "), len(paths)-3)
+}
+
+// gitReason says in one line why git failed. It is git's first `fatal:` or `error:` line
+// without the prefix, plus the cause git printed just before that generic line (an ssh
+// refusal, a rejected ref), or the files a line ending in ":" lists. Without such a line it
+// is the last line that is not a hint.
+func gitReason(out string) string {
+	var lines []string
+	for _, l := range sh.Lines(out) {
+		if !strings.HasPrefix(l, "hint:") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) == 0 {
+		return "no output"
+	}
+	at := -1
+	for i, l := range lines {
+		if gitError(l) {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		return lines[len(lines)-1]
+	}
+	reason := strings.TrimPrefix(strings.TrimPrefix(lines[at], "fatal: "), "error: ")
+	if strings.HasSuffix(reason, ":") {
+		var listed []string
+		for _, l := range lines[at+1:] {
+			if gitError(l) || strings.HasPrefix(l, "Please ") || strings.HasPrefix(l, "Aborting") {
+				break
+			}
+			listed = append(listed, l)
+		}
+		return strings.TrimSpace(reason + " " + ListPaths(listed))
+	}
+	if at > 0 && !gitProgress(lines[at-1]) {
+		return lines[at-1] + " (" + reason + ")"
+	}
+	return reason
+}
+
+func gitError(line string) bool {
+	return strings.HasPrefix(line, "fatal: ") || strings.HasPrefix(line, "error: ")
+}
+
+// gitProgress reports a line git prints on its way, not about a failure.
+func gitProgress(line string) bool {
+	for _, p := range []string{"Cloning into", "To ", "From ", "remote: Enumerating", "remote: Counting", "remote: Compressing", "remote: Total"} {
+		if strings.HasPrefix(line, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // Syncer runs git in the setup repo.
 type Syncer struct {
 	Repo   string
@@ -78,7 +162,7 @@ func (s *Syncer) mustGit(ctx context.Context, args ...string) (string, error) {
 		return "", err
 	}
 	if res.Code != 0 {
-		return "", fmt.Errorf("git %s failed: %s", args[0], strings.TrimSpace(res.Output))
+		return "", fmt.Errorf("git %s failed: %s", args[0], gitReason(res.Output))
 	}
 	return res.Output, nil
 }
@@ -306,7 +390,7 @@ type ConflictError struct {
 func (e *ConflictError) Error() string {
 	in := ""
 	if len(e.Files) > 0 {
-		in = " in " + strings.Join(e.Files, ", ")
+		in = " in " + ListPaths(e.Files)
 	}
 	return fmt.Sprintf("pull hit a conflict%s; rigger aborted the rebase: your commits stay local, nothing else changed", in)
 }
@@ -325,7 +409,7 @@ type UncommittedError struct {
 
 func (e *UncommittedError) Error() string {
 	return fmt.Sprintf("%d file(s) you left out of the commit changed on the remote too (%s): sync stops so your edit and the other machine's never mix",
-		len(e.Files), strings.Join(e.Files, ", "))
+		len(e.Files), ListPaths(e.Files))
 }
 
 // Unwrap lets errors.Is match ErrUncommitted.
@@ -369,7 +453,7 @@ func (s *Syncer) Pull(ctx context.Context) error {
 		_, _ = s.git(ctx, "rebase", "--abort")
 		return &ConflictError{Files: files}
 	}
-	return fmt.Errorf("git pull failed: %s", sh.LastLines(res.Output, 4))
+	return fmt.Errorf("could not pull: %s", gitReason(res.Output))
 }
 
 // changedUpstream fetches and returns the files of dirty that the upstream changed since the
@@ -380,7 +464,7 @@ func (s *Syncer) changedUpstream(ctx context.Context, dirty []string) ([]string,
 		return nil, err
 	}
 	if res.Code != 0 {
-		return nil, fmt.Errorf("git fetch failed: %s", sh.LastLines(res.Output, 4))
+		return nil, fmt.Errorf("could not fetch: %s", gitReason(res.Output))
 	}
 	paths, err := s.gitPaths(ctx, "diff", "--name-only", "-z", "HEAD...@{u}")
 	if err != nil {
@@ -406,7 +490,7 @@ func (s *Syncer) Fetch(ctx context.Context) error {
 		return err
 	}
 	if res.Code != 0 {
-		return fmt.Errorf("git fetch failed: %s", sh.LastLines(res.Output, 4))
+		return fmt.Errorf("could not fetch: %s", gitReason(res.Output))
 	}
 	return nil
 }
@@ -491,7 +575,7 @@ func (s *Syncer) Push(ctx context.Context) error {
 		return err
 	}
 	if res.Code != 0 {
-		return fmt.Errorf("git push failed: %s", strings.TrimSpace(res.Output))
+		return fmt.Errorf("could not push: %s", gitReason(res.Output))
 	}
 	return nil
 }

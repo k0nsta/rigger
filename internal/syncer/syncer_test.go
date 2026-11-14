@@ -59,6 +59,47 @@ func TestChanges(t *testing.T) {
 	assert.ElementsMatch(t, []Change{{Path: "zsh/.zshrc", Code: " M"}, {Path: "hosts/a.yaml", Code: "??"}}, changes)
 }
 
+func TestChangeState(t *testing.T) {
+	for code, want := range map[string]string{
+		" M": "changed", "M ": "changed", "MM": "changed", " T": "changed",
+		"??": "new", "A ": "new", "AM": "new",
+		" D": "deleted", "D ": "deleted", "MD": "deleted",
+		"R ": "renamed", "RM": "renamed", "C ": "copied",
+		"UU": "conflict", "AA": "conflict", "DD": "conflict", "DU": "conflict",
+	} {
+		assert.Equal(t, want, Change{Path: "x", Code: code}.State(), "code %q", code)
+	}
+}
+
+func TestListPaths(t *testing.T) {
+	assert.Equal(t, "a, b, c", ListPaths([]string{"a", "b", "c"}))
+	assert.Equal(t, "a, b, c and 2 more", ListPaths([]string{"a", "b", "c", "d", "e"}))
+	assert.Equal(t, "6 file(s) you left out of the commit changed on the remote too (a, b, c and 3 more): sync stops so your edit and the other machine's never mix",
+		(&UncommittedError{Files: []string{"a", "b", "c", "d", "e", "f"}}).Error())
+}
+
+func TestGitReason(t *testing.T) {
+	for name, tc := range map[string]struct{ out, want string }{
+		"ssh refused": {
+			"git@example.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\n",
+			"git@example.com: Permission denied (publickey). (Could not read from remote repository.)",
+		},
+		"push rejected": {
+			"To example.com:you/setup.git\n ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs to 'example.com:you/setup.git'\nhint: Updates were rejected because the remote contains work\n",
+			"! [rejected]        main -> main (fetch first) (failed to push some refs to 'example.com:you/setup.git')",
+		},
+		"files listed": {
+			"error: The following untracked working tree files would be overwritten by merge:\n\tnotes/a.txt\n\tnotes/b.txt\nPlease move or remove them before you merge.\nAborting\n",
+			"The following untracked working tree files would be overwritten by merge: notes/a.txt, notes/b.txt",
+		},
+		"after progress": {"Cloning into 'x'...\nfatal: repository 'x' does not exist\n", "repository 'x' does not exist"},
+		"no prefix":      {"something odd\nhint: try again\n", "something odd"},
+		"empty":          {"", "no output"},
+	} {
+		assert.Equal(t, tc.want, gitReason(tc.out), name)
+	}
+}
+
 func TestHomePathWarnings(t *testing.T) {
 	ctx := context.Background()
 	t.Run("swapped linked path", func(t *testing.T) {
