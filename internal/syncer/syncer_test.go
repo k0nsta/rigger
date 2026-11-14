@@ -234,6 +234,25 @@ func TestPullNamesNonASCIIFilesAsTheyAre(t *testing.T) {
 	assert.Equal(t, []Change{{Path: name, Code: " M"}}, changes, "the same spelling as Changes")
 }
 
+// A warning git prints on stderr (autocrlf here) must not swallow a path of the -z lists.
+func TestPullSeesBothChangedFilesDespiteGitWarnings(t *testing.T) {
+	ctx := context.Background()
+	a, b := machines(t)
+	testutil.WriteFile(t, filepath.Join(a.Repo, "zsh", ".zshrc"), "a edit\n")
+	commit(t, a, "a", []string{"zsh/.zshrc"})
+	require.NoError(t, a.Push(ctx))
+
+	git(t, b.Repo, "config", "core.autocrlf", "true")
+	testutil.WriteFile(t, filepath.Join(b.Repo, "zsh", ".zshrc"), "b edit\n")
+	require.Contains(t, git(t, b.Repo, "diff", "--name-only", "HEAD"), "warning:", "git warns on this setup")
+	var uncommitted *UncommittedError
+	require.ErrorAs(t, b.Pull(ctx), &uncommitted)
+	assert.Equal(t, []string{"zsh/.zshrc"}, uncommitted.Files)
+	changes, err := b.Changes(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []Change{{Path: "zsh/.zshrc", Code: " M"}}, changes)
+}
+
 func TestGateRefusesCredentials(t *testing.T) {
 	ctx := context.Background()
 	// fake tokens, split so secret scanners do not flag the source

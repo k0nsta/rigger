@@ -83,14 +83,26 @@ func (s *Syncer) mustGit(ctx context.Context, args ...string) (string, error) {
 	return res.Output, nil
 }
 
+// gitPaths runs a git command that prints NUL-separated paths (-z) and returns them. stdout is
+// read on its own: a warning git writes to stderr has no NUL and would fuse with a path.
+func (s *Syncer) gitPaths(ctx context.Context, args ...string) ([]string, error) {
+	res, err := s.Runner.Run(ctx, sh.Cmd{Path: "git", Args: append([]string{"-C", s.Repo}, args...), SplitStdout: true})
+	if err != nil {
+		return nil, err
+	}
+	if res.Code != 0 {
+		return nil, fmt.Errorf("git %s failed: %s", args[0], strings.TrimSpace(res.Output))
+	}
+	return nulSplit(res.Stdout), nil
+}
+
 // Changes lists modified, added, deleted and untracked (not ignored) paths.
 func (s *Syncer) Changes(ctx context.Context) ([]Change, error) {
-	out, err := s.mustGit(ctx, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	entries, err := s.gitPaths(ctx, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
 		return nil, err
 	}
 	var changes []Change
-	entries := strings.Split(out, "\x00")
 	for i := 0; i < len(entries); i++ {
 		e := entries[i]
 		if len(e) < 4 {
@@ -324,12 +336,12 @@ func (e *UncommittedError) Unwrap() error { return ErrUncommitted }
 // back (autostash) only when the remote did not change those files, so putting them back
 // cannot conflict; otherwise the pull stops before touching anything.
 func (s *Syncer) Pull(ctx context.Context) error {
-	out, err := s.mustGit(ctx, "diff", "--name-only", "-z", "HEAD")
+	dirty, err := s.gitPaths(ctx, "diff", "--name-only", "-z", "HEAD")
 	if err != nil {
 		return err
 	}
 	stash := "--no-autostash"
-	if dirty := nulSplit(out); len(dirty) > 0 {
+	if len(dirty) > 0 {
 		both, err := s.changedUpstream(ctx, dirty)
 		if err != nil {
 			return err
@@ -351,8 +363,8 @@ func (s *Syncer) Pull(ctx context.Context) error {
 			continue
 		}
 		var files []string
-		if out, err := s.mustGit(ctx, "diff", "--name-only", "-z", "--diff-filter=U"); err == nil {
-			files = nulSplit(out)
+		if paths, err := s.gitPaths(ctx, "diff", "--name-only", "-z", "--diff-filter=U"); err == nil {
+			files = paths
 		}
 		_, _ = s.git(ctx, "rebase", "--abort")
 		return &ConflictError{Files: files}
@@ -370,12 +382,12 @@ func (s *Syncer) changedUpstream(ctx context.Context, dirty []string) ([]string,
 	if res.Code != 0 {
 		return nil, fmt.Errorf("git fetch failed: %s", sh.LastLines(res.Output, 4))
 	}
-	out, err := s.mustGit(ctx, "diff", "--name-only", "-z", "HEAD...@{u}")
+	paths, err := s.gitPaths(ctx, "diff", "--name-only", "-z", "HEAD...@{u}")
 	if err != nil {
 		return nil, err
 	}
 	remote := map[string]bool{}
-	for _, f := range nulSplit(out) {
+	for _, f := range paths {
 		remote[f] = true
 	}
 	var both []string
