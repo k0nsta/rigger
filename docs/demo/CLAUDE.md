@@ -1,0 +1,1 @@
+- `record.sh` re-records the README GIF from `example/` in a throwaway HOME (expect types, asciinema records, agg renders; vhs needs a browser the command sandbox will not start). Check frames with `ffmpeg -i rigger.gif -fps_mode passthrough %04d.png`.

@@ -1,0 +1,2 @@
+- End-to-end runs and a Debian container test (skipped unless docker is up: `colima start`).
+- `vm/run.sh`: tart fresh-Mac matrix (`golden` once, then cases; results in `vm/.work/results/`). tart's Homebrew formula is broken under Homebrew 7: install it from the cirruslabs/tart GitHub release.
